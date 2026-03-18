@@ -13,14 +13,13 @@ const PORT = 3030;
 
 const DATA_DIR = path.join(__dirname, 'data');
 const FILES_DIR = path.join(__dirname, 'files');
-const LEGACY_UPLOAD_DIR = path.join(__dirname, 'uploads');
+const LEGACY_UPLOAD_DIR = path.join(__dirname, 'uploads'); // migration-only fallback
 const FOLDERS_FILE = path.join(DATA_DIR, 'folders.json');
 const DOCUMENTS_FILE = path.join(DATA_DIR, 'documents.json');
 const ALLOWED_EXT = new Set(['hwp', 'pdf', 'xlsx', 'xls', 'txt']);
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(FILES_DIR, { recursive: true });
-fs.mkdirSync(LEGACY_UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(FOLDERS_FILE)) fs.writeFileSync(FOLDERS_FILE, '[]\n', 'utf8');
 if (!fs.existsSync(DOCUMENTS_FILE)) fs.writeFileSync(DOCUMENTS_FILE, '[]\n', 'utf8');
 
@@ -41,10 +40,14 @@ function ensureFolderFilesDir(folderId) {
 
 function resolveStoredPath(doc) {
   const storedName = String(doc?.storedName || '');
-  // v2 format: "<folderId>/<filename>"
+  if (!storedName) return '';
   if (storedName.includes('/')) return path.join(FILES_DIR, storedName);
-  // legacy format fallback
-  return path.join(LEGACY_UPLOAD_DIR, storedName);
+
+  // legacy fallback (only when old uploads file actually exists)
+  const legacyPath = path.join(LEGACY_UPLOAD_DIR, storedName);
+  if (fs.existsSync(legacyPath)) return legacyPath;
+
+  return path.join(FILES_DIR, storedName);
 }
 
 const storage = multer.diskStorage({
