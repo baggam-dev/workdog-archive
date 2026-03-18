@@ -12,13 +12,15 @@ const app = express();
 const PORT = 3030;
 
 const DATA_DIR = path.join(__dirname, 'data');
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
+const FILES_DIR = path.join(__dirname, 'files');
+const LEGACY_UPLOAD_DIR = path.join(__dirname, 'uploads');
 const FOLDERS_FILE = path.join(DATA_DIR, 'folders.json');
 const DOCUMENTS_FILE = path.join(DATA_DIR, 'documents.json');
 const ALLOWED_EXT = new Set(['hwp', 'pdf', 'xlsx', 'xls', 'txt']);
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+fs.mkdirSync(FILES_DIR, { recursive: true });
+fs.mkdirSync(LEGACY_UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(FOLDERS_FILE)) fs.writeFileSync(FOLDERS_FILE, '[]\n', 'utf8');
 if (!fs.existsSync(DOCUMENTS_FILE)) fs.writeFileSync(DOCUMENTS_FILE, '[]\n', 'utf8');
 
@@ -31,8 +33,26 @@ function normalizeOriginalName(name) {
   }
 }
 
+function ensureFolderFilesDir(folderId) {
+  const dir = path.join(FILES_DIR, folderId);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function resolveStoredPath(doc) {
+  const storedName = String(doc?.storedName || '');
+  // v2 format: "<folderId>/<filename>"
+  if (storedName.includes('/')) return path.join(FILES_DIR, storedName);
+  // legacy format fallback
+  return path.join(LEGACY_UPLOAD_DIR, storedName);
+}
+
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  destination: (req, file, cb) => {
+    const folderId = req.params?.id;
+    if (!folderId) return cb(new Error('folder id is required'));
+    cb(null, ensureFolderFilesDir(folderId));
+  },
   filename: (req, file, cb) => {
     const originalName = normalizeOriginalName(file.originalname);
     const ext = path.extname(originalName).toLowerCase();
@@ -53,7 +73,7 @@ const upload = multer({
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(UPLOAD_DIR));
+app.use('/uploads', express.static(FILES_DIR));
 
 function readJson(file, fallback = []) {
   try {
@@ -75,6 +95,38 @@ const readDocuments = () => readJson(DOCUMENTS_FILE, []);
 const writeDocuments = (docs) => writeJson(DOCUMENTS_FILE, docs);
 const findFolder = (id) => readFolders().find((f) => f.id === id);
 
+function ensureFilesLayout() {
+  const folders = readFolders();
+  folders.forEach((f) => ensureFolderFilesDir(f.id));
+
+  const docs = readDocuments();
+  let changed = false;
+
+  for (const doc of docs) {
+    if (!doc?.folderId || !doc?.storedName) continue;
+    const currentStored = String(doc.storedName);
+    const currentPath = resolveStoredPath(doc);
+    const nextStored = currentStored.includes('/') ? currentStored : `${doc.folderId}/${currentStored}`;
+    const nextPath = path.join(FILES_DIR, nextStored);
+
+    ensureFolderFilesDir(doc.folderId);
+
+    if (currentPath !== nextPath && fs.existsSync(currentPath)) {
+      fs.renameSync(currentPath, nextPath);
+      doc.storedName = nextStored;
+      changed = true;
+      continue;
+    }
+
+    if (!currentStored.includes('/') && fs.existsSync(nextPath)) {
+      doc.storedName = nextStored;
+      changed = true;
+    }
+  }
+
+  if (changed) writeDocuments(docs);
+}
+
 function commandExists(cmd) {
   try {
     execFileSync('bash', ['-lc', `command -v ${cmd}`], { stdio: 'pipe' });
@@ -83,6 +135,8 @@ function commandExists(cmd) {
     return false;
   }
 }
+
+ensureFilesLayout();
 
 function extractHwpViaHwp5txt(fullPath) {
   const localHwp5txt = path.join(process.env.HOME || '/home/ubuntu', '.local', 'bin', 'hwp5txt');
@@ -290,7 +344,7 @@ async function runExtractionForDocument(docId) {
   if (idx === -1) return null;
 
   const doc = docs[idx];
-  const fullPath = path.join(UPLOAD_DIR, doc.storedName);
+  const fullPath = resolveStoredPath(doc);
 
   try {
     const result = await extractTextFromFile(fullPath, doc.fileType);
@@ -336,6 +390,7 @@ app.post('/api/folders', (req, res) => {
   const folder = { id: crypto.randomUUID(), name: name.trim(), description: typeof description === 'string' ? description.trim() : '', color: typeof color === 'string' && color.trim() ? color.trim() : '#F59E0B', createdAt: new Date().toISOString() };
   folders.push(folder);
   writeFolders(folders);
+  ensureFolderFilesDir(folder.id);
   return res.status(201).json(folder);
 });
 
@@ -362,10 +417,12 @@ app.delete('/api/folders/:id', (req, res) => {
   const remains = [];
   for (const doc of docs) {
     if (doc.folderId === id) {
-      const fullPath = path.join(UPLOAD_DIR, doc.storedName);
+      const fullPath = resolveStoredPath(doc);
       if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
     } else remains.push(doc);
   }
+  const folderFilesDir = path.join(FILES_DIR, id);
+  if (fs.existsSync(folderFilesDir)) fs.rmSync(folderFilesDir, { recursive: true, force: true });
   writeDocuments(remains);
   return res.json({ deletedId: id });
 });
@@ -401,7 +458,7 @@ app.delete('/api/folders/:folderId/documents/:docId', (req, res) => {
   const docs = readDocuments();
   const target = docs.find((d) => d.id === docId && d.folderId === folderId);
   if (!target) return res.status(404).json({ error: 'document not found' });
-  const fullPath = path.join(UPLOAD_DIR, target.storedName);
+  const fullPath = resolveStoredPath(target);
   if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
   writeDocuments(docs.filter((d) => d.id !== docId));
   return res.json({ deletedId: docId });
@@ -417,7 +474,7 @@ app.post('/api/folders/:folderId/documents/bulk-delete', (req, res) => {
   const set = new Set(ids);
   const targets = docs.filter((d) => d.folderId === folderId && set.has(d.id));
   for (const doc of targets) {
-    const fullPath = path.join(UPLOAD_DIR, doc.storedName);
+    const fullPath = resolveStoredPath(doc);
     if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
   }
   writeDocuments(docs.filter((d) => !(d.folderId === folderId && set.has(d.id))));
@@ -442,7 +499,7 @@ app.post('/api/folders/:id/documents', (req, res) => {
       folderId,
       title,
       fileName: originalName,
-      storedName: req.file.filename,
+      storedName: `${folderId}/${req.file.filename}`, 
       fileType: ext,
       size: req.file.size,
       uploadedAt: new Date().toISOString(),

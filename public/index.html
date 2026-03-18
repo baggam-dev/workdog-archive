@@ -276,6 +276,7 @@
     const formatKST = (iso) => { try { return new Date(iso).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}); } catch { return iso; } };
     const formatDateOnly = (iso) => { try { return new Date(iso).toLocaleDateString('sv-SE', { timeZone:'Asia/Seoul' }); } catch { return iso; } };
     const showToast = (msg,type='info') => { const el=document.createElement('div'); el.className=`toast ${type==='error'?'error':''}`.trim(); el.textContent=msg; toastWrap.appendChild(el); requestAnimationFrame(()=>el.classList.add('show')); setTimeout(()=>{el.classList.remove('show'); setTimeout(()=>el.remove(),220);},2200); };
+    const encodeStoredPath = (storedName) => String(storedName || '').split('/').map((p) => encodeURIComponent(p)).join('/');
 
     function errorBadges(doc) {
       const tags = [];
@@ -551,7 +552,7 @@
           <div class="desc">${escapeHtml((d.summaryOneLine || '').slice(0, 120) || '-')}</div>
           <div class="mobile-actions">
             <button class="secondary" onclick="openDocDetail('${escapeHtml(d.id)}')">상세 보기</button>
-            <a href="/uploads/${encodeURIComponent(d.storedName)}" target="_blank"><button class="secondary">파일 열기</button></a>
+            <a href="/uploads/${encodeStoredPath(d.storedName)}" target="_blank"><button class="secondary">파일 열기</button></a>
           </div>
         </div>
       `).join('');
@@ -631,7 +632,7 @@
       const target = currentDocs.find((d) => d.id === docId);
       if (!target) return;
       openMenuDocId = null;
-      window.open('/uploads/' + encodeURIComponent(target.storedName), '_blank');
+      window.open('/uploads/' + encodeStoredPath(target.storedName), '_blank');
     };
 
     window.saveMemo = async (docId) => {
