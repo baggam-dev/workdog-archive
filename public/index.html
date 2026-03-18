@@ -63,6 +63,9 @@
     .summary-item { border:1px solid #d9e1ec; border-radius:8px; background:#f8fafc; padding:10px; }
     .summary-label { color:#6b7280; font-size:12px; margin-bottom:6px; }
     .summary-value { font-size:20px; font-weight:700; color:#111827; }
+    .state-line { margin-bottom:8px; border:1px solid #d9e1ec; background:#f8fafc; border-radius:8px; padding:8px 10px; font-size:12px; color:#475569; }
+    .state-line.loading { border-color:#bfdbfe; background:#eff6ff; color:#1e3a8a; }
+    .state-line.error { border-color:#fecaca; background:#fef2f2; color:#991b1b; }
     .doc-actions { display:flex; gap:6px; align-items:center; position:relative; }
     .mini-btn { min-height:30px; padding:4px 8px; border-radius:6px; font-size:12px; }
     .more-btn { width:30px; min-width:30px; padding:0; border-radius:6px; }
@@ -153,6 +156,7 @@
           </div>
         </div>
         <div id="docSummary" class="summary-grid"></div>
+        <div id="docStateLine" class="state-line">준비 완료</div>
         <div class="subpanel">
           <div class="row no-stack" style="margin-bottom:8px;"><div class="muted">정렬: 컬럼명 클릭 · 키보드: ↑/↓ 이동, Enter 상세, Space 중요</div><button id="bulkDeleteBtn" class="danger">선택 삭제</button></div>
           <table role="grid" aria-label="문서 관리자 테이블">
@@ -259,6 +263,7 @@
     const docDetailModal = document.getElementById('docDetailModal');
     const toastWrap = document.getElementById('toastWrap');
     const docSummaryEl = document.getElementById('docSummary');
+    const docStateLineEl = document.getElementById('docStateLine');
     let currentDocs = [];
     let editingFolderId = null;
     const defaultSort = { key: 'updatedAt', dir: 'desc' };
@@ -470,6 +475,12 @@
       });
     }
 
+    function setDocState(kind, message) {
+      if (!docStateLineEl) return;
+      docStateLineEl.className = `state-line ${kind || ''}`.trim();
+      docStateLineEl.textContent = message;
+    }
+
     function renderDocSummary(docs) {
       const total = docs.length;
       const important = docs.filter((d) => d.isImportant).length;
@@ -489,11 +500,14 @@
       const visibleDocIds = new Set(docs.map((d) => d.id));
       if (openMenuDocId && !visibleDocIds.has(openMenuDocId)) openMenuDocId = null;
       if (!docs.length) {
+        setDocState('', '검색 결과가 없습니다. 필터 조건을 조정해 주세요.');
         docRowsEl.innerHTML = '<tr><td colspan="8" class="muted">검색 결과가 없습니다.</td></tr>';
         docMobileListEl.innerHTML = '<div class="muted">검색 결과가 없습니다.</div>';
         updateSortHeaders();
         return;
       }
+
+      setDocState('', `총 ${docs.length}건 문서 표시 중`);
 
       docRowsEl.innerHTML = docs.map(d => `
         <tr class="doc-row" tabindex="0" data-doc-id="${escapeHtml(d.id)}">
@@ -547,14 +561,25 @@
     }
 
     async function renderDetail(folderId) {
-      const folder = await api('/api/folders/' + folderId);
-      folderDetailCardEl.innerHTML = `<div class="item"><div class="row no-stack"><div class="name"><span class="folder-title"><svg class="icon-folder" viewBox="0 0 24 18" aria-hidden="true"><path fill="${escapeHtml(folder.color || '#f59e0b')}" d="M2 3.5C2 2.67 2.67 2 3.5 2h5.1c.46 0 .9.21 1.19.57l1.03 1.3c.29.36.73.57 1.19.57H20.5c.83 0 1.5.67 1.5 1.5v8.56c0 .83-.67 1.5-1.5 1.5h-17c-.83 0-1.5-.67-1.5-1.5V3.5z"/></svg><span class="folder-name-text" style="color:${escapeHtml(folder.color || '#f59e0b')}">${escapeHtml(folder.name)}</span></span></div><div class="actions"><button class="secondary icon-btn" onclick="editFolder('${folder.id}')" title="폴더 수정">✎</button><button class="danger icon-btn" onclick="deleteFolder('${folder.id}')" title="폴더 삭제">✕</button></div></div><div class="desc">${escapeHtml(folder.description || '-')}</div><div class="meta">ID: ${escapeHtml(folder.id)} · 생성일(KST): ${escapeHtml(formatKST(folder.createdAt))}</div></div>`;
+      try {
+        setDocState('loading', '문서 목록을 불러오는 중...');
+        const folder = await api('/api/folders/' + folderId);
+        folderDetailCardEl.innerHTML = `<div class="item"><div class="row no-stack"><div class="name"><span class="folder-title"><svg class="icon-folder" viewBox="0 0 24 18" aria-hidden="true"><path fill="${escapeHtml(folder.color || '#f59e0b')}" d="M2 3.5C2 2.67 2.67 2 3.5 2h5.1c.46 0 .9.21 1.19.57l1.03 1.3c.29.36.73.57 1.19.57H20.5c.83 0 1.5.67 1.5 1.5v8.56c0 .83-.67 1.5-1.5 1.5h-17c-.83 0-1.5-.67-1.5-1.5V3.5z"/></svg><span class="folder-name-text" style="color:${escapeHtml(folder.color || '#f59e0b')}">${escapeHtml(folder.name)}</span></span></div><div class="actions"><button class="secondary icon-btn" onclick="editFolder('${folder.id}')" title="폴더 수정">✎</button><button class="danger icon-btn" onclick="deleteFolder('${folder.id}')" title="폴더 삭제">✕</button></div></div><div class="desc">${escapeHtml(folder.description || '-')}</div><div class="meta">ID: ${escapeHtml(folder.id)} · 생성일(KST): ${escapeHtml(formatKST(folder.createdAt))}</div></div>`;
 
-      currentDocs = (await api('/api/folders/' + folderId + '/documents')).map((d) => ({ ...d, folderName: folder.name }));
-      activeDocIndex = -1;
-      docDetailEl.innerHTML = '문서를 선택하면 상세 정보를 확인할 수 있습니다.';
-      if (!currentDocs.length) { docRowsEl.innerHTML = '<tr><td colspan="11" class="muted">문서가 없습니다.</td></tr>'; docMobileListEl.innerHTML=''; return; }
-      renderDocTable();
+        currentDocs = (await api('/api/folders/' + folderId + '/documents')).map((d) => ({ ...d, folderName: folder.name }));
+        activeDocIndex = -1;
+        docDetailEl.innerHTML = '문서를 선택하면 상세 정보를 확인할 수 있습니다.';
+        if (!currentDocs.length) {
+          setDocState('', '이 폴더에는 문서가 없습니다. 업로드 후 다시 확인해 주세요.');
+          docRowsEl.innerHTML = '<tr><td colspan="11" class="muted">문서가 없습니다.</td></tr>';
+          docMobileListEl.innerHTML='';
+          return;
+        }
+        renderDocTable();
+      } catch (e) {
+        setDocState('error', `문서 목록 로드 실패: ${e.message || '알 수 없는 오류'}`);
+        throw e;
+      }
     }
 
     async function createFolder() {
