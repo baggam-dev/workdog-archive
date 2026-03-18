@@ -66,6 +66,8 @@
     .doc-actions { display:flex; gap:6px; align-items:center; }
     .mini-btn { min-height:30px; padding:4px 8px; border-radius:6px; font-size:12px; }
     .more-btn { width:30px; min-width:30px; padding:0; border-radius:6px; }
+    .important-star { background:transparent; border:0; min-height:auto; padding:0; font-size:20px; line-height:1; cursor:pointer; color:#9ca3af; }
+    .important-star.on { color:#f59e0b; text-shadow:0 0 0.5px #b45309, 0 0 6px rgba(245,158,11,.28); }
 
     @media (max-width: 900px) {
       .wrap { padding: 0 10px; margin: 14px auto; }
@@ -152,21 +154,21 @@
           <table role="grid" aria-label="문서 관리자 테이블">
           <colgroup>
             <col style="width:36px" />
+            <col style="width:8%" />
             <col style="width:23%" />
             <col style="width:13%" />
             <col style="width:8%" />
             <col style="width:12%" />
-            <col style="width:8%" />
             <col style="width:13%" />
             <col style="width:16%" />
           </colgroup>
           <thead><tr>
             <th><input type="checkbox" id="checkAllDocs" /></th>
+            <th><button class="th-sort" data-sort="important" aria-label="중요 정렬">중요 <span class="sort-ind">↕</span></button></th>
             <th><button class="th-sort" data-sort="title" aria-label="문서명 정렬">문서명 <span class="sort-ind">↕</span></button></th>
             <th><button class="th-sort" data-sort="folder" aria-label="폴더 정렬">폴더 <span class="sort-ind">↕</span></button></th>
             <th><button class="th-sort" data-sort="fileType" aria-label="형식 정렬">형식 <span class="sort-ind">↕</span></button></th>
             <th><button class="th-sort" data-sort="category" aria-label="카테고리 정렬">카테고리 <span class="sort-ind">↕</span></button></th>
-            <th><button class="th-sort" data-sort="important" aria-label="중요 정렬">중요 <span class="sort-ind">↕</span></button></th>
             <th><button class="th-sort" data-sort="updatedAt" aria-label="수정일 정렬">수정일 <span class="sort-ind">↕</span></button></th>
             <th>액션</th>
           </tr></thead>
@@ -489,16 +491,17 @@
       docRowsEl.innerHTML = docs.map(d => `
         <tr class="doc-row" tabindex="0" data-doc-id="${escapeHtml(d.id)}">
           <td><input type="checkbox" class="doc-check" value="${escapeHtml(d.id)}" /></td>
+          <td>
+            <button class="important-star ${d.isImportant ? 'on' : ''}" onclick="toggleImportant('${escapeHtml(d.id)}')" title="${d.isImportant ? '중요 해제' : '중요 설정'}" aria-label="${d.isImportant ? '중요 해제' : '중요 설정'}">${d.isImportant ? '★' : '☆'}</button>
+          </td>
           <td title="${escapeHtml(d.fileName || '')}">${escapeHtml(d.title)}</td>
           <td>${escapeHtml(d.folderName || '-')}</td>
           <td>${escapeHtml((d.fileType || '').toUpperCase())}</td>
           <td><span class="badge-chip">${escapeHtml(d.category || '기타')}</span></td>
-          <td>${d.isImportant ? '★' : '☆'}</td>
           <td>${escapeHtml(formatKST(d.uploadedAt))}</td>
           <td>
             <div class="doc-actions">
               <button class="secondary mini-btn" onclick="openDocDetail('${escapeHtml(d.id)}')">보기</button>
-              <button class="secondary mini-btn" onclick="toggleImportant('${escapeHtml(d.id)}')">${d.isImportant ? '★' : '☆'}</button>
               <button class="secondary more-btn" onclick="openDocMenu('${escapeHtml(d.id)}')">⋯</button>
             </div>
           </td>
