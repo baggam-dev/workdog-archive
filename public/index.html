@@ -33,6 +33,7 @@
     .th-sort.active .sort-ind { color:#1f4e79; }
     .doc-row:focus { outline: 2px solid #1f4e79; outline-offset: -2px; background:#eef4fb; }
     .doc-row.row-active { background:#f5f9ff; }
+    .mini-check { width:14px !important; height:14px !important; min-height:14px !important; accent-color:#1f4e79; border-radius:3px; margin:0; }
     .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
     .status { font-weight:700; color:#166534; } .status.fail{ color:#b91c1c; }
     .badges { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
@@ -140,7 +141,7 @@
             </select>
             <input id="searchTag" placeholder="태그 포함 검색" />
             <label style="display:flex;align-items:center;gap:6px;padding:0 6px;">
-              <input id="onlyImportant" type="checkbox" style="width:auto;min-height:auto;" /> 중요문서만
+              <input id="onlyImportant" class="mini-check" type="checkbox" /> 중요문서만
             </label>
             <button id="applyFilterBtn" class="secondary">필터 적용</button>
           </div>
@@ -254,7 +255,8 @@
     const docSummaryEl = document.getElementById('docSummary');
     let currentDocs = [];
     let editingFolderId = null;
-    let tableSort = { key: 'updatedAt', dir: 'desc' };
+    const defaultSort = { key: 'updatedAt', dir: 'desc' };
+    let tableSort = { ...defaultSort };
     let activeDocIndex = -1;
 
     const escapeHtml = (v) => String(v || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
@@ -367,6 +369,10 @@
       });
 
       return filtered;
+    }
+
+    function getDefaultDirByKey(key) {
+      return key === 'updatedAt' ? 'desc' : 'asc';
     }
 
     function updateSortHeaders() {
@@ -488,7 +494,7 @@
           <td>${escapeHtml((d.fileType || '').toUpperCase())}</td>
           <td><span class="badge-chip">${escapeHtml(d.category || '기타')}</span></td>
           <td>${d.isImportant ? '★' : '☆'}</td>
-          <td title="${escapeHtml(formatKST(d.uploadedAt))}">${escapeHtml(formatDateOnly(d.uploadedAt))}</td>
+          <td>${escapeHtml(formatKST(d.uploadedAt))}</td>
           <td>
             <div class="doc-actions">
               <button class="secondary mini-btn" onclick="openDocDetail('${escapeHtml(d.id)}')">보기</button>
@@ -699,12 +705,18 @@
     document.querySelectorAll('.th-sort').forEach((el) => {
       el.addEventListener('click', () => {
         const key = el.dataset.sort;
-        if (tableSort.key === key) {
-          tableSort.dir = tableSort.dir === 'asc' ? 'desc' : 'asc';
-        } else {
+        const defaultDir = getDefaultDirByKey(key);
+        const oppositeDir = defaultDir === 'asc' ? 'desc' : 'asc';
+
+        if (tableSort.key !== key) {
           tableSort.key = key;
-          tableSort.dir = key === 'updatedAt' ? 'desc' : 'asc';
+          tableSort.dir = defaultDir;
+        } else if (tableSort.dir === defaultDir) {
+          tableSort.dir = oppositeDir;
+        } else {
+          tableSort = { ...defaultSort };
         }
+
         renderDocTable();
       });
     });
