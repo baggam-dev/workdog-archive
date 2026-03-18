@@ -25,9 +25,14 @@
     .desc { color:var(--muted); font-size:13px; margin-top:6px; } .meta { color:#64748b; font-size:12px; margin-top:6px; }
     .actions { display:flex; gap:6px; } .hidden { display:none; } .folder-click { cursor:pointer; } .folder-title{display:flex;align-items:center;gap:6px;}
     table { width:100%; border-collapse: collapse; font-size:13px; table-layout: fixed; background:#fff; }
+    thead th { position: sticky; top: 0; z-index: 2; }
     th,td { border-bottom:1px solid #e5e9f0; padding:10px 8px; text-align:left; vertical-align:middle; }
     th { color:#4b5563; font-weight:700; white-space:nowrap; background:#f8fafc; }
-    .th-sort { background:none; border:0; color:inherit; padding:0; min-height:auto; font:inherit; cursor:pointer; }
+    .th-sort { background:none; border:0; color:inherit; padding:0; min-height:auto; font:inherit; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
+    .th-sort .sort-ind { color:#94a3b8; font-size:11px; line-height:1; }
+    .th-sort.active .sort-ind { color:#1f4e79; }
+    .doc-row:focus { outline: 2px solid #1f4e79; outline-offset: -2px; background:#eef4fb; }
+    .doc-row.row-active { background:#f5f9ff; }
     .status { font-weight:700; color:#166534; } .status.fail{ color:#b91c1c; }
     .badges { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
     .badge-pill { display:inline-flex; align-items:center; border-radius:999px; padding:3px 8px; font-size:11px; font-weight:600; border:1px solid #d3dbe7; background:#f3f6fb; color:#374151; }
@@ -155,12 +160,12 @@
           </colgroup>
           <thead><tr>
             <th><input type="checkbox" id="checkAllDocs" /></th>
-            <th><button class="th-sort" data-sort="title">문서명</button></th>
-            <th><button class="th-sort" data-sort="folder">폴더</button></th>
-            <th><button class="th-sort" data-sort="fileType">형식</button></th>
-            <th><button class="th-sort" data-sort="category">카테고리</button></th>
-            <th><button class="th-sort" data-sort="important">중요</button></th>
-            <th><button class="th-sort" data-sort="updatedAt">수정일</button></th>
+            <th><button class="th-sort" data-sort="title" aria-label="문서명 정렬">문서명 <span class="sort-ind">↕</span></button></th>
+            <th><button class="th-sort" data-sort="folder" aria-label="폴더 정렬">폴더 <span class="sort-ind">↕</span></button></th>
+            <th><button class="th-sort" data-sort="fileType" aria-label="형식 정렬">형식 <span class="sort-ind">↕</span></button></th>
+            <th><button class="th-sort" data-sort="category" aria-label="카테고리 정렬">카테고리 <span class="sort-ind">↕</span></button></th>
+            <th><button class="th-sort" data-sort="important" aria-label="중요 정렬">중요 <span class="sort-ind">↕</span></button></th>
+            <th><button class="th-sort" data-sort="updatedAt" aria-label="수정일 정렬">수정일 <span class="sort-ind">↕</span></button></th>
             <th>액션</th>
           </tr></thead>
           <tbody id="docRows"></tbody>
@@ -249,6 +254,7 @@
     let currentDocs = [];
     let editingFolderId = null;
     let tableSort = { key: 'updatedAt', dir: 'desc' };
+    let activeDocIndex = -1;
 
     const escapeHtml = (v) => String(v || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
     const formatKST = (iso) => { try { return new Date(iso).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}); } catch { return iso; } };
@@ -362,6 +368,60 @@
       return filtered;
     }
 
+    function updateSortHeaders() {
+      document.querySelectorAll('.th-sort').forEach((btn) => {
+        const key = btn.dataset.sort;
+        const ind = btn.querySelector('.sort-ind');
+        btn.classList.remove('active');
+        btn.removeAttribute('aria-sort');
+        if (key === tableSort.key) {
+          btn.classList.add('active');
+          const isAsc = tableSort.dir === 'asc';
+          if (ind) ind.textContent = isAsc ? '▲' : '▼';
+          btn.setAttribute('aria-sort', isAsc ? 'ascending' : 'descending');
+        } else if (ind) {
+          ind.textContent = '↕';
+        }
+      });
+    }
+
+    function bindDocKeyboardNav() {
+      const rows = Array.from(document.querySelectorAll('.doc-row'));
+      if (!rows.length) return;
+      if (activeDocIndex < 0 || activeDocIndex >= rows.length) activeDocIndex = 0;
+      rows.forEach((row, idx) => row.classList.toggle('row-active', idx === activeDocIndex));
+
+      rows.forEach((row, idx) => {
+        row.onkeydown = async (e) => {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeDocIndex = Math.min(rows.length - 1, idx + 1);
+            rows[activeDocIndex].focus();
+            rows.forEach((r, i) => r.classList.toggle('row-active', i === activeDocIndex));
+            return;
+          }
+          if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeDocIndex = Math.max(0, idx - 1);
+            rows[activeDocIndex].focus();
+            rows.forEach((r, i) => r.classList.toggle('row-active', i === activeDocIndex));
+            return;
+          }
+          const docId = row.dataset.docId;
+          if (!docId) return;
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            openDocDetail(docId);
+            return;
+          }
+          if (e.key === ' ' || e.code === 'Space') {
+            e.preventDefault();
+            await toggleImportant(docId);
+          }
+        };
+      });
+    }
+
     function renderDocSummary(docs) {
       const total = docs.length;
       const important = docs.filter((d) => d.isImportant).length;
@@ -381,11 +441,12 @@
       if (!docs.length) {
         docRowsEl.innerHTML = '<tr><td colspan="8" class="muted">검색 결과가 없습니다.</td></tr>';
         docMobileListEl.innerHTML = '<div class="muted">검색 결과가 없습니다.</div>';
+        updateSortHeaders();
         return;
       }
 
       docRowsEl.innerHTML = docs.map(d => `
-        <tr>
+        <tr class="doc-row" tabindex="0" data-doc-id="${escapeHtml(d.id)}">
           <td><input type="checkbox" class="doc-check" value="${escapeHtml(d.id)}" /></td>
           <td title="${escapeHtml(d.fileName || '')}">${escapeHtml(d.title)}</td>
           <td>${escapeHtml(d.folderName || '-')}</td>
@@ -421,6 +482,8 @@
       `).join('');
 
       document.getElementById('checkAllDocs').checked = false;
+      updateSortHeaders();
+      bindDocKeyboardNav();
     }
 
     async function renderDetail(folderId) {
@@ -428,6 +491,7 @@
       folderDetailCardEl.innerHTML = `<div class="item"><div class="row no-stack"><div class="name"><span class="folder-title"><svg class="icon-folder" viewBox="0 0 24 18" aria-hidden="true"><path fill="${escapeHtml(folder.color || '#f59e0b')}" d="M2 3.5C2 2.67 2.67 2 3.5 2h5.1c.46 0 .9.21 1.19.57l1.03 1.3c.29.36.73.57 1.19.57H20.5c.83 0 1.5.67 1.5 1.5v8.56c0 .83-.67 1.5-1.5 1.5h-17c-.83 0-1.5-.67-1.5-1.5V3.5z"/></svg><span class="folder-name-text" style="color:${escapeHtml(folder.color || '#f59e0b')}">${escapeHtml(folder.name)}</span></span></div><div class="actions"><button class="secondary icon-btn" onclick="editFolder('${folder.id}')" title="폴더 수정">✎</button><button class="danger icon-btn" onclick="deleteFolder('${folder.id}')" title="폴더 삭제">✕</button></div></div><div class="desc">${escapeHtml(folder.description || '-')}</div><div class="meta">ID: ${escapeHtml(folder.id)} · 생성일(KST): ${escapeHtml(formatKST(folder.createdAt))}</div></div>`;
 
       currentDocs = (await api('/api/folders/' + folderId + '/documents')).map((d) => ({ ...d, folderName: folder.name }));
+      activeDocIndex = -1;
       docDetailEl.innerHTML = '문서를 선택하면 상세 정보를 확인할 수 있습니다.';
       if (!currentDocs.length) { docRowsEl.innerHTML = '<tr><td colspan="11" class="muted">문서가 없습니다.</td></tr>'; docMobileListEl.innerHTML=''; return; }
       renderDocTable();
