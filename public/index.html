@@ -486,6 +486,8 @@
     function renderDocTable() {
       const docs = getFilteredDocs();
       renderDocSummary(docs);
+      const visibleDocIds = new Set(docs.map((d) => d.id));
+      if (openMenuDocId && !visibleDocIds.has(openMenuDocId)) openMenuDocId = null;
       if (!docs.length) {
         docRowsEl.innerHTML = '<tr><td colspan="8" class="muted">검색 결과가 없습니다.</td></tr>';
         docMobileListEl.innerHTML = '<div class="muted">검색 결과가 없습니다.</div>';
@@ -510,7 +512,7 @@
               <div class="menu-wrap">
                 <button class="secondary more-btn" onclick="toggleActionMenu(event, '${escapeHtml(d.id)}')">⋯</button>
                 ${openMenuDocId === d.id ? `
-                  <div class="action-menu">
+                  <div class="action-menu" onclick="event.stopPropagation()">
                     <button onclick="openDocDetail('${escapeHtml(d.id)}')">상세 보기</button>
                     <button onclick="openDocFile('${escapeHtml(d.id)}')">파일 열기</button>
                     <button onclick="deleteDocument('${escapeHtml(d.id)}')" style="color:#b91c1c;">삭제</button>
@@ -737,6 +739,12 @@
       });
     });
     document.getElementById('checkAllDocs').addEventListener('change', (e) => { const checked = e.target.checked; document.querySelectorAll('.doc-check').forEach((el) => { el.checked = checked; }); });
+    document.addEventListener('click', () => {
+      if (openMenuDocId !== null) {
+        openMenuDocId = null;
+        renderDocTable();
+      }
+    });
     window.addEventListener('popstate', () => renderRoute().catch(e => showToast(e.message, 'error')));
     document.addEventListener('click', () => {
       if (!openMenuDocId) return;
