@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Workdog Archive (for Inhee) 사용 매뉴얼</title>
+  <style>
+    :root { --bg:#0b1020; --panel:#131a2e; --line:#2a3558; --text:#e9eeff; --muted:#9aa6d1; --accent:#f59e0b; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:Inter,system-ui,sans-serif; background:radial-gradient(circle at 20% 0%,#1a2140,var(--bg) 45%); color:var(--text); }
+    .wrap { max-width: 980px; margin: 24px auto; padding: 0 14px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:12px; }
+    h1,h2,h3 { margin: 0 0 10px; }
+    p, li { color: var(--text); line-height: 1.55; }
+    .muted { color: var(--muted); }
+    .badge { display:inline-block; padding:4px 10px; border-radius:6px; background:#223463; border:1px solid #5a71b6; font-size:12px; font-weight:700; }
+    .top { display:flex; gap:8px; flex-wrap:wrap; justify-content:space-between; align-items:center; }
+    .btn { border:0; border-radius:10px; padding:10px 14px; background:var(--accent); color:#161616; font-weight:700; text-decoration:none; display:inline-block; }
+    .btn.secondary { background:#3f5392; color:#fff; }
+    code { background:#0f1630; border:1px solid #31406f; border-radius:6px; padding:2px 6px; }
+    ul { margin: 8px 0 0 18px; }
+    .grid { display:grid; gap:10px; grid-template-columns: 1fr 1fr; }
+    @media (max-width: 768px) { .grid { grid-template-columns:1fr; } .btn { min-height:44px; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card">
+      <div class="top">
+        <div>
+          <h1>📘 Workdog Archive (for Inhee) 사용 매뉴얼</h1>
+          <p class="muted">버전 1.1 · 실사용 가이드</p>
+        </div>
+        <div>
+          <a class="btn secondary" href="/">← 메인으로</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>1) 기본 흐름</h2>
+      <ul>
+        <li>메인 화면 우측 아이콘 <code>＋</code> 으로 폴더를 생성합니다.</li>
+        <li>폴더명을 클릭하면 폴더 상세로 이동합니다.</li>
+        <li>문서 목록 상단의 <b>Upload</b> 버튼으로 업로드합니다.</li>
+        <li>업로드 후 자동으로 텍스트 추출/요약/분류가 실행됩니다.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>2) 폴더 관리</h2>
+      <ul>
+        <li><b>생성:</b> 모달 팝업에서 폴더명/색상/설명 입력 후 생성</li>
+        <li><b>수정:</b> 폴더 카드의 <code>✎</code> 버튼 (생성과 동일한 구조의 수정 팝업)</li>
+        <li><b>삭제:</b> 폴더 카드의 <code>✕</code> 버튼</li>
+      </ul>
+      <p class="muted">폴더 색상은 폴더 아이콘 및 폴더명에 동일하게 반영됩니다.</p>
+    </section>
+
+    <section class="card">
+      <h2>3) 문서 업로드</h2>
+      <p>지원 형식: <span class="badge">hwp</span> <span class="badge">pdf</span> <span class="badge">xlsx</span> <span class="badge">xls</span> <span class="badge">txt</span></p>
+      <ul>
+        <li>문서 목록 헤더의 <b>Upload</b> 버튼 클릭</li>
+        <li>업로드 팝업에서 문서 제목(선택) + 파일 선택 후 업로드</li>
+        <li>처리 실패 시 상세 팝업에서 에러 원인을 확인</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>4) 검색 / 필터 / 정렬</h2>
+      <div class="grid">
+        <div>
+          <h3>필터</h3>
+          <ul>
+            <li>제목 검색</li>
+            <li>카테고리 드롭다운 필터</li>
+            <li>파일형식 드롭다운 필터</li>
+            <li>태그 포함 검색</li>
+            <li>중요문서만 보기</li>
+          </ul>
+        </div>
+        <div>
+          <h3>정렬</h3>
+          <ul>
+            <li><code>최신순</code></li>
+            <li><code>오래된순</code></li>
+            <li><code>제목순</code></li>
+            <li><code>중요문서 우선</code></li>
+          </ul>
+        </div>
+      </div>
+      <p class="muted">필터 접기/펼치기는 꺽쇠 아이콘 버튼(<code>⌄ / ⌃</code>)으로 제어합니다.</p>
+    </section>
+
+    <section class="card">
+      <h2>5) 문서 목록 읽는 법</h2>
+      <ul>
+        <li><b>중요</b>: 회색 별(☆) / 노란 별(★)</li>
+        <li><b>요약</b>: 길면 ... 처리, 마우스 올리면 전체 표시</li>
+        <li><b>메모</b>: Y/N로 표시, 마우스 올리면 메모 내용 표시</li>
+        <li><b>업로드일</b>: 표에는 날짜(yyyy-mm-dd), 툴팁에 시분초</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>6) 문서 상세/메모/복사</h2>
+      <ul>
+        <li>목록의 <code>☰</code> 버튼으로 문서 상세 팝업 열기</li>
+        <li>요약결과 복사 버튼으로 한줄요약/핵심포인트/카테고리/태그 일괄 복사</li>
+        <li>문서 메모 작성 후 저장</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>7) 운영 팁</h2>
+      <ul>
+        <li>자주 보는 문서는 ★ 표시 후 정렬을 <code>중요문서 우선</code>으로 사용하세요.</li>
+        <li>메모 컬럼(Y/N)을 활용하면 후속 확인 문서를 빠르게 찾을 수 있습니다.</li>
+        <li>에러 문서는 상세 팝업에서 추출/AI 에러를 먼저 확인하세요.</li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>

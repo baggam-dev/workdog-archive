@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>workdog archive</title>
+  <style>
+    :root { --bg:#f3f5f8; --panel:#ffffff; --line:#d9dee7; --text:#1f2937; --muted:#6b7280; --accent:#1f4e79; --accent-soft:#e9f0f8; --danger:#b91c1c; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:Inter,system-ui,sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width: 1520px; margin: 16px auto; padding: 0 16px; }
+    .brand,.card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:12px; }
+    .brand { display:flex; align-items:center; gap:12px; }
+    .logo { width:42px;height:42px;border-radius:8px;display:grid;place-items:center;background:#e8edf4;font-size:22px; }
+    h1 { margin:0; font-size:20px; } h3 { margin:0 0 10px; font-size:16px; }
+    .muted { margin:4px 0 0; color:var(--muted); font-size:13px; }
+    .grid { display:grid; gap:8px; grid-template-columns:1fr 1fr 140px auto; }
+    input, textarea, select { width:100%; padding:9px 10px; border-radius:8px; border:1px solid #cdd4df; background:#fff; color:var(--text); }
+    button { border:1px solid #1a4066; border-radius:8px; padding:9px 12px; font-weight:600; cursor:pointer; background:var(--accent); color:#fff; min-height:36px; }
+    .secondary { background:#fff; color:#1f2937; border:1px solid #bcc5d3; } .danger { background:var(--danger); color:#fff; border:1px solid #991b1b; }
+    .row { display:flex; justify-content:space-between; gap:10px; align-items:center; }
+    .folder-list { display:grid; gap:10px; }
+    .item { border:1px solid #d9e1ec; border-radius:10px; padding:12px; background:#fff; }
+    .name { font-weight:700; } .badge-dot { display:inline-block;width:10px;height:10px;border-radius:999px;margin-right:6px;vertical-align:middle; }
+    .desc { color:var(--muted); font-size:13px; margin-top:6px; } .meta { color:#64748b; font-size:12px; margin-top:6px; }
+    .actions { display:flex; gap:6px; } .hidden { display:none; } .folder-click { cursor:pointer; } .folder-title{display:flex;align-items:center;gap:6px;}
+    table { width:100%; border-collapse: collapse; font-size:13px; table-layout: fixed; background:#fff; }
+    th,td { border-bottom:1px solid #e5e9f0; padding:10px 8px; text-align:left; vertical-align:middle; }
+    th { color:#4b5563; font-weight:700; white-space:nowrap; background:#f8fafc; }
+    .th-sort { background:none; border:0; color:inherit; padding:0; min-height:auto; font:inherit; cursor:pointer; }
+    .status { font-weight:700; color:#166534; } .status.fail{ color:#b91c1c; }
+    .badges { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+    .badge-pill { display:inline-flex; align-items:center; border-radius:999px; padding:3px 8px; font-size:11px; font-weight:600; border:1px solid #d3dbe7; background:#f3f6fb; color:#374151; }
+    .badge-chip { display:inline-flex; align-items:center; border-radius:999px; padding:2px 8px; font-size:11px; font-weight:600; border:1px solid #d8e2ef; background:#f7fbff; color:#334155; }
+    .badge-pill.ok { border-color:#b7ddc6; background:#ecfdf3; color:#166534; } .badge-pill.err { border-color:#f2b8b8; background:#fff1f1; color:#991b1b; }
+    .doc-pre { white-space:pre-wrap; background:#f8fafc; border:1px solid #d9e1eb; border-radius:8px; padding:10px; max-height:320px; overflow:auto; color:#1f2937; font-size:13px; }
+    .toast-wrap { position:fixed; right:18px; bottom:18px; z-index:9999; display:grid; gap:8px; }
+    .toast { min-width:220px; max-width:360px; background:#182448; color:#f6f8ff; border:1px solid #3f4f81; border-radius:10px; padding:10px 12px; font-size:14px; opacity:0; transform:translateY(8px); transition:all .2s ease; }
+    .toast.show { opacity:1; transform:translateY(0); } .toast.error { border-color:#a93f3f; background:#3b1f25; }
+    .tags-inline { color:#9dc0ff; font-size:12px; }
+    .doc-mobile-list { display:none; gap:10px; }
+    .doc-mobile-item { border:1px solid #d9e1ec; background:#fff; border-radius:10px; padding:12px; display:grid; gap:8px; }
+    .mobile-top { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+    .mobile-title { font-weight:700; }
+    .mobile-actions { display:flex; gap:6px; flex-wrap:wrap; }
+    .icon-btn { width:36px; min-width:36px; padding:0; display:grid; place-items:center; font-size:16px; font-weight:700; color:#1f2937; background:#fff; border:1px solid #c8d1df; box-shadow:none; }
+    .icon-folder { width:18px; height:14px; display:inline-block; vertical-align:middle; }
+    .folder-name-text { font-weight:700; }
+    .icon-btn:hover { filter: brightness(1.08); }
+    .titlebar-actions { display:flex; gap:8px; align-items:center; justify-content:flex-end; }
+    .overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:10000; padding:14px; }
+    .overlay.show { display:flex; }
+    .modal { width:min(680px,100%); background:#131a2e; border:1px solid #2d3f75; border-radius:14px; padding:14px; }
+    .subpanel { border:1px solid #d9e1ec; border-radius:8px; padding:10px; margin-bottom:10px; background:#fff; }
+    .summary-grid { display:grid; grid-template-columns:repeat(4, minmax(140px,1fr)); gap:8px; margin-bottom:10px; }
+    .summary-item { border:1px solid #d9e1ec; border-radius:8px; background:#f8fafc; padding:10px; }
+    .summary-label { color:#6b7280; font-size:12px; margin-bottom:6px; }
+    .summary-value { font-size:20px; font-weight:700; color:#111827; }
+    .doc-actions { display:flex; gap:6px; align-items:center; }
+    .mini-btn { min-height:30px; padding:4px 8px; border-radius:6px; font-size:12px; }
+    .more-btn { width:30px; min-width:30px; padding:0; border-radius:6px; }
+
+    @media (max-width: 900px) {
+      .wrap { padding: 0 10px; margin: 14px auto; }
+      .grid { grid-template-columns: 1fr !important; }
+      .row { align-items: stretch; flex-direction: column; }
+      .row.no-stack { flex-direction: row; align-items: center; justify-content: space-between; }
+      .actions { flex-wrap: wrap; justify-content:flex-end; }
+      th, td { font-size: 12px; padding: 7px 5px; }
+      .badge-pill { white-space: normal; }
+      .doc-pre { font-size: 12px; max-height: 260px; }
+      button, input, textarea, select { min-height: 44px; font-size: 15px; }
+      .titlebar-actions { width:100%; justify-content:flex-end; }
+      .row > .secondary, .row > .danger, .row > .icon-btn { align-self:flex-end; }
+    }
+
+    @media (max-width: 768px) {
+      table { display:none; }
+      .doc-mobile-list { display:grid; }
+      .row.no-stack .titlebar-actions, .row.no-stack .actions { margin-left:auto; }
+      .brand h1 { font-size:18px; }
+      .brand .muted { font-size:13px; }
+      .card { padding: 12px; }
+      .toast-wrap { right: 10px; left: 10px; }
+      .toast { max-width: unset; }
+      .row, .mobile-actions { align-items:flex-end; }
+      .mobile-actions { justify-content:flex-end; }
+      .mobile-actions button { min-width: 92px; }
+      .item .actions { justify-content:flex-end; }
+      #filterPanel button, #filterPanel label { justify-self:end; }
+      #toggleFilterBtn, #applyFilterBtn, #docsRefreshBtn, #refreshBtn { margin-left:auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section id="brandBar" class="brand" style="justify-content:space-between;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div class="logo">🐶</div>
+        <div><h1>Workdog Archive (for Inhee)</h1><p class="muted">내부 업무용 문서 아카이브 · 버전 1.1</p></div>
+      </div>
+      <div class="titlebar-actions">
+        <a href="/manual.html" style="display:inline-block;text-decoration:none;"><button class="secondary">사용매뉴얼</button></a>
+      </div>
+    </section>
+
+    <section id="homeView">
+      <section class="card">
+        <div class="row no-stack" style="margin-bottom:12px;"><h3 style="white-space:nowrap;">폴더 목록</h3><div class="titlebar-actions"><button id="openCreateFolderModalBtn" class="secondary icon-btn" title="폴더 생성">＋</button><button id="refreshBtn" class="secondary icon-btn" title="목록 새로고침">⟳</button></div></div>
+        <div id="folderList" class="folder-list"></div>
+      </section>
+    </section>
+
+    <section id="detailView" class="hidden">
+      <section class="card">
+        <div class="row no-stack" style="margin-bottom:8px;"><button id="backBtn" class="secondary icon-btn" title="폴더 목록으로">←</button></div>
+        <div id="folderDetailCard"></div>
+      </section>
+      <section class="card">
+        <div class="row no-stack"><h3>문서 목록</h3><div class="titlebar-actions"><button id="openUploadModalBtn" class="secondary" title="문서 업로드">Upload</button><button id="docsRefreshBtn" class="secondary icon-btn" title="문서목록 새로고침">⟳</button></div></div>
+        <div class="row" style="margin-bottom:8px;">
+          <button id="toggleFilterBtn" class="secondary icon-btn" title="필터 접기/펼치기">⌄</button>
+        </div>
+        <div class="subpanel">
+          <div id="filterPanel" class="grid" style="grid-template-columns:1.4fr 180px 130px 1fr auto auto;">
+            <input id="searchTitle" placeholder="문서명 검색" />
+            <select id="filterCategory">
+              <option value="">카테고리 전체</option>
+              <option value="계획서">계획서</option><option value="결과보고">결과보고</option><option value="안내문">안내문</option><option value="공문">공문</option><option value="일정표">일정표</option><option value="회의자료">회의자료</option><option value="참고자료">참고자료</option><option value="기타">기타</option>
+            </select>
+            <select id="filterFileType">
+              <option value="">형식 전체</option>
+              <option value="hwp">hwp</option><option value="pdf">pdf</option><option value="xlsx">xlsx</option><option value="xls">xls</option><option value="txt">txt</option>
+            </select>
+            <input id="searchTag" placeholder="태그 포함 검색" />
+            <label style="display:flex;align-items:center;gap:6px;padding:0 6px;">
+              <input id="onlyImportant" type="checkbox" style="width:auto;min-height:auto;" /> 중요문서만
+            </label>
+            <button id="applyFilterBtn" class="secondary">필터 적용</button>
+          </div>
+        </div>
+        <div id="docSummary" class="summary-grid"></div>
+        <div class="subpanel">
+          <div class="row no-stack" style="margin-bottom:8px;"><div class="muted">정렬: 컬럼명을 클릭하세요</div><button id="bulkDeleteBtn" class="danger">선택 삭제</button></div>
+          <table>
+          <colgroup>
+            <col style="width:36px" />
+            <col style="width:23%" />
+            <col style="width:13%" />
+            <col style="width:8%" />
+            <col style="width:12%" />
+            <col style="width:8%" />
+            <col style="width:13%" />
+            <col style="width:16%" />
+          </colgroup>
+          <thead><tr>
+            <th><input type="checkbox" id="checkAllDocs" /></th>
+            <th><button class="th-sort" data-sort="title">문서명</button></th>
+            <th><button class="th-sort" data-sort="folder">폴더</button></th>
+            <th><button class="th-sort" data-sort="fileType">형식</button></th>
+            <th><button class="th-sort" data-sort="category">카테고리</button></th>
+            <th><button class="th-sort" data-sort="important">중요</button></th>
+            <th><button class="th-sort" data-sort="updatedAt">수정일</button></th>
+            <th>액션</th>
+          </tr></thead>
+          <tbody id="docRows"></tbody>
+        </table>
+        <div id="docMobileList" class="doc-mobile-list"></div>
+        </div>
+      </section>
+    </section>
+  </div>
+
+  <div id="createFolderModal" class="overlay">
+    <div class="modal">
+      <div class="row"><h3>폴더 생성</h3><button id="closeCreateFolderModalBtn" class="secondary icon-btn">✖</button></div>
+      <div class="grid" style="grid-template-columns: 1fr 130px; margin-top:8px;">
+        <div>
+          <label class="muted" style="display:block;margin-bottom:4px;">폴더명</label>
+          <input id="name" placeholder="폴더명" />
+        </div>
+        <div>
+          <label class="muted" style="display:block;margin-bottom:4px;">폴더 색상</label>
+          <input id="color" type="color" value="#f59e0b" style="height:44px;" />
+        </div>
+      </div>
+      <div style="margin-top:8px;">
+        <label class="muted" style="display:block;margin-bottom:4px;">설명</label>
+        <textarea id="description" rows="3" placeholder="폴더 설명을 입력하세요"></textarea>
+      </div>
+      <div style="margin-top:10px; display:flex; justify-content:flex-end;"><button id="createBtn">생성</button></div>
+    </div>
+  </div>
+
+  <div id="editFolderModal" class="overlay">
+    <div class="modal">
+      <div class="row"><h3>폴더 수정</h3><button id="closeEditFolderModalBtn" class="secondary icon-btn">✖</button></div>
+      <div class="grid" style="grid-template-columns: 1fr 130px; margin-top:8px;">
+        <div>
+          <label class="muted" style="display:block;margin-bottom:4px;">폴더명</label>
+          <input id="editName" placeholder="폴더명" />
+        </div>
+        <div>
+          <label class="muted" style="display:block;margin-bottom:4px;">폴더 색상</label>
+          <input id="editColor" type="color" value="#f59e0b" style="height:44px;" />
+        </div>
+      </div>
+      <div style="margin-top:8px;">
+        <label class="muted" style="display:block;margin-bottom:4px;">설명</label>
+        <textarea id="editDescription" rows="3" placeholder="폴더 설명을 입력하세요"></textarea>
+      </div>
+      <div style="margin-top:10px; display:flex; justify-content:flex-end;"><button id="saveEditFolderBtn">저장</button></div>
+    </div>
+  </div>
+
+  <div id="uploadModal" class="overlay">
+    <div class="modal">
+      <div class="row"><h3>문서 업로드</h3><button id="closeUploadModalBtn" class="secondary icon-btn">✖</button></div>
+      <p class="muted">지원 파일 형식: hwp, pdf, xlsx, xls, txt</p>
+      <div class="grid" style="grid-template-columns:1fr; margin-top:8px;">
+        <input id="docTitle" placeholder="문서 제목(선택)" />
+        <input id="docFile" type="file" accept=".hwp,.pdf,.xlsx,.xls,.txt" />
+      </div>
+      <div style="margin-top:10px; display:flex; justify-content:flex-end;"><button id="uploadBtn">업로드</button></div>
+    </div>
+  </div>
+
+  <div id="docDetailModal" class="overlay">
+    <div class="modal" style="width:min(980px,100%); max-height:86vh; overflow:auto;">
+      <div class="row no-stack"><h3>문서 상세</h3><button id="closeDocDetailModalBtn" class="secondary icon-btn">✖</button></div>
+      <div id="docDetail" class="muted" style="margin-top:8px;">문서를 선택하면 상세 정보를 확인할 수 있습니다.</div>
+    </div>
+  </div>
+
+  <div id="toastWrap" class="toast-wrap"></div>
+
+  <script>
+    const homeView = document.getElementById('homeView');
+    const detailView = document.getElementById('detailView');
+    const brandBar = document.getElementById('brandBar');
+    const folderDetailCardEl = document.getElementById('folderDetailCard');
+    const folderListEl = document.getElementById('folderList');
+    const docRowsEl = document.getElementById('docRows');
+    const docDetailEl = document.getElementById('docDetail');
+    const docMobileListEl = document.getElementById('docMobileList');
+    const docDetailModal = document.getElementById('docDetailModal');
+    const toastWrap = document.getElementById('toastWrap');
+    const docSummaryEl = document.getElementById('docSummary');
+    let currentDocs = [];
+    let editingFolderId = null;
+    let tableSort = { key: 'updatedAt', dir: 'desc' };
+
+    const escapeHtml = (v) => String(v || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+    const formatKST = (iso) => { try { return new Date(iso).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}); } catch { return iso; } };
+    const formatDateOnly = (iso) => { try { return new Date(iso).toLocaleDateString('sv-SE', { timeZone:'Asia/Seoul' }); } catch { return iso; } };
+    const showToast = (msg,type='info') => { const el=document.createElement('div'); el.className=`toast ${type==='error'?'error':''}`.trim(); el.textContent=msg; toastWrap.appendChild(el); requestAnimationFrame(()=>el.classList.add('show')); setTimeout(()=>{el.classList.remove('show'); setTimeout(()=>el.remove(),220);},2200); };
+
+    function errorBadges(doc) {
+      const tags = [];
+      const e = String(doc.extractError || '').toLowerCase();
+      if (doc.extractStatus === 'failed') {
+        if (e.includes('hwp5txt')) tags.push('hwp5txt');
+        if (e.includes('hwp.js')) tags.push('hwp.js');
+        if (e.includes('strings')) tags.push('strings');
+        if (e.includes('not installed')) tags.push('설치필요');
+        if (e.includes('header signature')) tags.push('포맷비호환');
+      }
+      if (doc.aiStatus === 'failed') tags.push('AI실패');
+      if (doc.aiStatus === 'pending') tags.push('AI대기');
+      return [...new Set(tags)];
+    }
+
+    async function api(path, options = {}) {
+      const res = await fetch(path, options);
+      const text = await res.text();
+      let body; try { body = JSON.parse(text); } catch { body = text; }
+      if (!res.ok) throw new Error(body?.error || '요청 실패');
+      return body;
+    }
+
+    const getFolderId = () => new URLSearchParams(location.search).get('folderId');
+    const goHome = () => { history.pushState({}, '', '/'); renderRoute(); };
+    const goFolder = (id) => { history.pushState({}, '', '/?folderId=' + encodeURIComponent(id)); renderRoute(); };
+
+    async function renderFolders() {
+      const folders = await api('/api/folders');
+      if (!folders.length) { folderListEl.innerHTML = '<div class="desc">아직 폴더가 없습니다.</div>'; return; }
+      folderListEl.innerHTML = folders.map(f => `
+        <div class="item"><div class="row no-stack"><div class="name folder-click" onclick="openFolder('${f.id}')"><span class="folder-title"><svg class="icon-folder" viewBox="0 0 24 18" aria-hidden="true"><path fill="${escapeHtml(f.color || '#f59e0b')}" d="M2 3.5C2 2.67 2.67 2 3.5 2h5.1c.46 0 .9.21 1.19.57l1.03 1.3c.29.36.73.57 1.19.57H20.5c.83 0 1.5.67 1.5 1.5v8.56c0 .83-.67 1.5-1.5 1.5h-17c-.83 0-1.5-.67-1.5-1.5V3.5z"/></svg><span class="folder-name-text" style="color:${escapeHtml(f.color || '#f59e0b')}">${escapeHtml(f.name)}</span></span></div><div class="actions"><button class="secondary icon-btn" onclick="editFolder('${f.id}')" title="폴더 수정">✎</button><button class="danger icon-btn" onclick="deleteFolder('${f.id}')" title="폴더 삭제">✕</button></div></div><div class="desc">${escapeHtml(f.description || '-')}</div><div class="meta">ID: ${escapeHtml(f.id)} · 생성일(KST): ${escapeHtml(formatKST(f.createdAt))}</div></div>
+      `).join('');
+    }
+
+    async function renderDocDetail(docId) {
+      const doc = await api('/api/documents/' + docId);
+      const tags = errorBadges(doc);
+      docDetailEl.innerHTML = `
+        <div class="meta">제목: ${escapeHtml(doc.title)} · 파일형식: ${escapeHtml(doc.fileType)} · 업로드일(KST): ${escapeHtml(formatKST(doc.uploadedAt))}</div>
+        <div class="badges">
+          <span class="badge-pill ${doc.extractStatus === 'success' ? 'ok' : 'err'}">extract: ${escapeHtml(doc.extractStatus || '-')}</span>
+          ${doc.extractMethod ? `<span class="badge-pill">method: ${escapeHtml(doc.extractMethod)}</span>` : ''}
+          <span class="badge-pill ${doc.aiStatus === 'success' ? 'ok' : 'err'}">ai: ${escapeHtml(doc.aiStatus || 'pending')}</span>
+          <span class="badge-pill">중요: ${doc.isImportant ? '★' : '☆'}</span>
+          ${tags.map(t => `<span class="badge-pill err">${escapeHtml(t)}</span>`).join('')}
+        </div>
+        ${doc.extractError ? `<div class="meta" style="margin-top:6px;color:#ffb4b4;">추출 에러: ${escapeHtml(doc.extractError)}</div>` : ''}
+        ${doc.aiError ? `<div class="meta" style="margin-top:6px;color:#ffb4b4;">AI 에러: ${escapeHtml(doc.aiError)}</div>` : ''}
+
+        <div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <b>AI 요약 결과</b>
+          <button class="secondary" onclick="copyAiResult('${escapeHtml(doc.id)}')">요약결과 복사</button>
+        </div>
+        <div style="margin-top:8px;"><b>한줄 요약</b><div class="doc-pre" style="max-height:none;">${escapeHtml(doc.summaryOneLine || '(없음)')}</div></div>
+        <div style="margin-top:8px;"><b>핵심 포인트</b><div class="doc-pre" style="max-height:none;">${(doc.keyPoints || []).length ? (doc.keyPoints || []).map((p, i) => `${i+1}. ${p}`).join('\n') : '(없음)'}</div></div>
+        <div class="badges"><span class="badge-pill">카테고리: ${escapeHtml(doc.category || '-')}</span>${(doc.tags || []).map(t => `<span class="badge-pill">#${escapeHtml(t)}</span>`).join('')}</div>
+
+        <div style="margin-top:12px;"><b>문서 메모</b></div>
+        <textarea id="docMemo" style="width:100%;min-height:110px;margin-top:6px;padding:10px;border-radius:10px;border:1px solid #3a4670;background:#0f1630;color:#e9eeff;">${escapeHtml(doc.memo || '')}</textarea>
+        <div style="margin-top:8px;"><button onclick="saveMemo('${escapeHtml(doc.id)}')">메모 저장</button></div>
+
+        <div style="margin-top:12px;"><b>원문 추출 텍스트</b><div class="doc-pre">${escapeHtml(doc.extractedText || '(추출된 텍스트 없음)')}</div></div>
+      `;
+      docDetailModal.classList.add('show');
+    }
+
+    function getFilteredDocs() {
+      const qTitle = (document.getElementById('searchTitle').value || '').trim().toLowerCase();
+      const qCategory = (document.getElementById('filterCategory').value || '').trim().toLowerCase();
+      const qType = (document.getElementById('filterFileType').value || '').trim().toLowerCase();
+      const qTag = (document.getElementById('searchTag').value || '').trim().toLowerCase();
+      const onlyImportant = document.getElementById('onlyImportant').checked;
+
+      const filtered = currentDocs.filter((d) => {
+        const okTitle = !qTitle || String(d.title || '').toLowerCase().includes(qTitle);
+        const okCategory = !qCategory || String(d.category || '').toLowerCase() === qCategory;
+        const okType = !qType || String(d.fileType || '').toLowerCase() === qType;
+        const okTag = !qTag || (d.tags || []).some((t) => String(t).toLowerCase().includes(qTag));
+        const okImportant = !onlyImportant || !!d.isImportant;
+        return okTitle && okCategory && okType && okTag && okImportant;
+      });
+
+      filtered.sort((a, b) => {
+        const dir = tableSort.dir === 'asc' ? 1 : -1;
+        const key = tableSort.key;
+        if (key === 'important') {
+          return ((a.isImportant ? 1 : 0) - (b.isImportant ? 1 : 0)) * dir;
+        }
+        if (key === 'updatedAt') {
+          return (new Date(a.uploadedAt) - new Date(b.uploadedAt)) * dir;
+        }
+        if (key === 'folder') {
+          return String((a.folderName || '')).localeCompare(String((b.folderName || '')), 'ko') * dir;
+        }
+        if (key === 'fileType') {
+          return String(a.fileType || '').localeCompare(String(b.fileType || ''), 'ko') * dir;
+        }
+        if (key === 'category') {
+          return String(a.category || '').localeCompare(String(b.category || ''), 'ko') * dir;
+        }
+        return String(a.title || '').localeCompare(String(b.title || ''), 'ko') * dir;
+      });
+
+      return filtered;
+    }
+
+    function renderDocSummary(docs) {
+      const total = docs.length;
+      const important = docs.filter((d) => d.isImportant).length;
+      const withMemo = docs.filter((d) => !!(d.memo || '').trim()).length;
+      const recent7d = docs.filter((d) => (Date.now() - new Date(d.uploadedAt).getTime()) <= 7 * 24 * 60 * 60 * 1000).length;
+      docSummaryEl.innerHTML = `
+        <div class="summary-item"><div class="summary-label">총 문서</div><div class="summary-value">${total}</div></div>
+        <div class="summary-item"><div class="summary-label">중요 문서</div><div class="summary-value">${important}</div></div>
+        <div class="summary-item"><div class="summary-label">메모 작성</div><div class="summary-value">${withMemo}</div></div>
+        <div class="summary-item"><div class="summary-label">최근 7일 수정</div><div class="summary-value">${recent7d}</div></div>
+      `;
+    }
+
+    function renderDocTable() {
+      const docs = getFilteredDocs();
+      renderDocSummary(docs);
+      if (!docs.length) {
+        docRowsEl.innerHTML = '<tr><td colspan="8" class="muted">검색 결과가 없습니다.</td></tr>';
+        docMobileListEl.innerHTML = '<div class="muted">검색 결과가 없습니다.</div>';
+        return;
+      }
+
+      docRowsEl.innerHTML = docs.map(d => `
+        <tr>
+          <td><input type="checkbox" class="doc-check" value="${escapeHtml(d.id)}" /></td>
+          <td title="${escapeHtml(d.fileName || '')}">${escapeHtml(d.title)}</td>
+          <td>${escapeHtml(d.folderName || '-')}</td>
+          <td>${escapeHtml((d.fileType || '').toUpperCase())}</td>
+          <td><span class="badge-chip">${escapeHtml(d.category || '기타')}</span></td>
+          <td>${d.isImportant ? '★' : '☆'}</td>
+          <td title="${escapeHtml(formatKST(d.uploadedAt))}">${escapeHtml(formatDateOnly(d.uploadedAt))}</td>
+          <td>
+            <div class="doc-actions">
+              <button class="secondary mini-btn" onclick="openDocDetail('${escapeHtml(d.id)}')">보기</button>
+              <button class="secondary mini-btn" onclick="toggleImportant('${escapeHtml(d.id)}')">${d.isImportant ? '★' : '☆'}</button>
+              <button class="secondary more-btn" onclick="openDocMenu('${escapeHtml(d.id)}')">⋯</button>
+            </div>
+          </td>
+        </tr>`).join('');
+
+      docMobileListEl.innerHTML = docs.map(d => `
+        <div class="doc-mobile-item">
+          <div class="mobile-top">
+            <div>
+              <div class="mobile-title">${escapeHtml(d.title)}</div>
+              <div class="meta">${escapeHtml(formatKST(d.uploadedAt))} · ${escapeHtml(d.fileType)}</div>
+            </div>
+            <button class="secondary" onclick="toggleImportant('${escapeHtml(d.id)}')">${d.isImportant ? '★ 중요' : '☆ 중요'}</button>
+          </div>
+          <div><span class="badge-pill">${escapeHtml(d.category || '기타')}</span> ${(d.tags || []).slice(0, 4).map(t => `<span class="badge-pill">#${escapeHtml(t)}</span>`).join(' ')}</div>
+          <div class="desc">${escapeHtml((d.summaryOneLine || '').slice(0, 120) || '-')}</div>
+          <div class="mobile-actions">
+            <button class="secondary" onclick="openDocDetail('${escapeHtml(d.id)}')">상세 보기</button>
+            <a href="/uploads/${encodeURIComponent(d.storedName)}" target="_blank"><button class="secondary">파일 열기</button></a>
+          </div>
+        </div>
+      `).join('');
+
+      document.getElementById('checkAllDocs').checked = false;
+    }
+
+    async function renderDetail(folderId) {
+      const folder = await api('/api/folders/' + folderId);
+      folderDetailCardEl.innerHTML = `<div class="item"><div class="row no-stack"><div class="name"><span class="folder-title"><svg class="icon-folder" viewBox="0 0 24 18" aria-hidden="true"><path fill="${escapeHtml(folder.color || '#f59e0b')}" d="M2 3.5C2 2.67 2.67 2 3.5 2h5.1c.46 0 .9.21 1.19.57l1.03 1.3c.29.36.73.57 1.19.57H20.5c.83 0 1.5.67 1.5 1.5v8.56c0 .83-.67 1.5-1.5 1.5h-17c-.83 0-1.5-.67-1.5-1.5V3.5z"/></svg><span class="folder-name-text" style="color:${escapeHtml(folder.color || '#f59e0b')}">${escapeHtml(folder.name)}</span></span></div><div class="actions"><button class="secondary icon-btn" onclick="editFolder('${folder.id}')" title="폴더 수정">✎</button><button class="danger icon-btn" onclick="deleteFolder('${folder.id}')" title="폴더 삭제">✕</button></div></div><div class="desc">${escapeHtml(folder.description || '-')}</div><div class="meta">ID: ${escapeHtml(folder.id)} · 생성일(KST): ${escapeHtml(formatKST(folder.createdAt))}</div></div>`;
+
+      currentDocs = (await api('/api/folders/' + folderId + '/documents')).map((d) => ({ ...d, folderName: folder.name }));
+      docDetailEl.innerHTML = '문서를 선택하면 상세 정보를 확인할 수 있습니다.';
+      if (!currentDocs.length) { docRowsEl.innerHTML = '<tr><td colspan="11" class="muted">문서가 없습니다.</td></tr>'; docMobileListEl.innerHTML=''; return; }
+      renderDocTable();
+    }
+
+    async function createFolder() {
+      const name = document.getElementById('name').value.trim();
+      const description = document.getElementById('description').value.trim();
+      const color = document.getElementById('color').value;
+      if (!name) return showToast('폴더명을 입력해주세요.', 'error');
+      await api('/api/folders', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, description, color }) });
+      document.getElementById('name').value = ''; document.getElementById('description').value = ''; await renderFolders(); showToast('폴더가 생성되었습니다.');
+    }
+
+    async function uploadDocument() {
+      const folderId = getFolderId();
+      const title = document.getElementById('docTitle').value.trim();
+      const fileInput = document.getElementById('docFile');
+      if (!folderId) return;
+      if (!fileInput.files.length) return showToast('파일을 선택해주세요.', 'error');
+      const form = new FormData(); if (title) form.append('title', title); form.append('file', fileInput.files[0]);
+      await api('/api/folders/' + folderId + '/documents', { method:'POST', body: form });
+      document.getElementById('docTitle').value=''; fileInput.value=''; await renderDetail(folderId); showToast('파일 업로드 + 추출/요약 완료');
+    }
+
+    window.openFolder = (id) => goFolder(id);
+    window.openDocDetail = (docId) => renderDocDetail(docId).catch((e) => showToast(e.message, 'error'));
+
+    window.toggleImportant = async (docId) => {
+      const doc = currentDocs.find((d) => d.id === docId);
+      if (!doc) return;
+      await api('/api/documents/' + docId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isImportant: !doc.isImportant })
+      });
+      await renderDetail(getFolderId());
+      showToast(!doc.isImportant ? '중요 문서로 표시했습니다.' : '중요 표시를 해제했습니다.');
+    };
+
+    window.openDocMenu = async (docId) => {
+      const target = currentDocs.find((d) => d.id === docId);
+      if (!target) return;
+      const choice = prompt('작업 선택: 1) 파일 열기  2) 상세 보기  3) 삭제');
+      if (choice === '1') {
+        window.open('/uploads/' + encodeURIComponent(target.storedName), '_blank');
+        return;
+      }
+      if (choice === '2') {
+        openDocDetail(docId);
+        return;
+      }
+      if (choice === '3') {
+        await window.deleteDocument(docId);
+      }
+    };
+
+    window.saveMemo = async (docId) => {
+      const memoEl = document.getElementById('docMemo');
+      const memo = memoEl ? memoEl.value : '';
+      await api('/api/documents/' + docId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memo })
+      });
+      const updated = await api('/api/documents/' + docId);
+      const idx = currentDocs.findIndex((d) => d.id === docId);
+      if (idx >= 0) currentDocs[idx] = updated;
+      showToast('메모를 저장했습니다.');
+    };
+
+    window.copyAiResult = async (docId) => {
+      const doc = await api('/api/documents/' + docId);
+      const text = [
+        `한줄 요약: ${doc.summaryOneLine || '-'}`,
+        `핵심 포인트:\n${(doc.keyPoints || []).map((p, i) => `${i + 1}. ${p}`).join('\n') || '-'}`,
+        `카테고리: ${doc.category || '-'}`,
+        `태그: ${(doc.tags || []).join(', ') || '-'}`
+      ].join('\n\n');
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast('요약 결과를 복사했습니다.');
+      } catch {
+        showToast('복사에 실패했습니다.', 'error');
+      }
+    };
+
+    window.deleteDocument = async (docId) => { const folderId = getFolderId(); if (!folderId) return; if (!confirm('이 파일을 삭제하시겠습니까?')) return; await api('/api/folders/' + folderId + '/documents/' + docId, { method:'DELETE' }); await renderDetail(folderId); showToast('문서 1건이 삭제되었습니다.'); };
+
+    async function bulkDeleteDocuments() {
+      const folderId = getFolderId(); if (!folderId) return;
+      const ids = Array.from(document.querySelectorAll('.doc-check:checked')).map((el) => el.value);
+      if (!ids.length) return showToast('삭제할 문서를 선택해주세요.', 'error');
+      if (!confirm(`선택한 ${ids.length}개 문서를 삭제하시겠습니까?`)) return;
+      const result = await api('/api/folders/' + folderId + '/documents/bulk-delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
+      await renderDetail(folderId); showToast(`문서 ${result.deletedCount ?? ids.length}건이 삭제되었습니다.`);
+    }
+
+    window.editFolder = async (id) => {
+      const folder = await api('/api/folders/' + id);
+      editingFolderId = id;
+      document.getElementById('editName').value = folder.name || '';
+      document.getElementById('editDescription').value = folder.description || '';
+      document.getElementById('editColor').value = folder.color || '#f59e0b';
+      openModal(document.getElementById('editFolderModal'));
+    };
+
+    window.deleteFolder = async (id) => { if (!confirm('정말 삭제하시겠습니까?')) return; await api('/api/folders/' + id, { method:'DELETE' }); if (getFolderId() === id) goHome(); await renderFolders(); showToast('폴더가 삭제되었습니다.'); };
+
+    async function renderRoute() {
+      const folderId = getFolderId();
+      if (folderId) {
+        brandBar.classList.add('hidden');
+        homeView.classList.add('hidden');
+        detailView.classList.remove('hidden');
+        await renderDetail(folderId);
+      } else {
+        brandBar.classList.remove('hidden');
+        detailView.classList.add('hidden');
+        homeView.classList.remove('hidden');
+        await renderFolders();
+      }
+    }
+
+    const createFolderModal = document.getElementById('createFolderModal');
+    const editFolderModal = document.getElementById('editFolderModal');
+    const uploadModal = document.getElementById('uploadModal');
+    const openModal = (el) => el.classList.add('show');
+    const closeModal = (el) => el.classList.remove('show');
+
+    document.getElementById('openCreateFolderModalBtn').addEventListener('click', () => openModal(createFolderModal));
+    document.getElementById('closeCreateFolderModalBtn').addEventListener('click', () => closeModal(createFolderModal));
+    document.getElementById('closeEditFolderModalBtn').addEventListener('click', () => closeModal(editFolderModal));
+    document.getElementById('openUploadModalBtn').addEventListener('click', () => openModal(uploadModal));
+    document.getElementById('closeUploadModalBtn').addEventListener('click', () => closeModal(uploadModal));
+    document.getElementById('closeDocDetailModalBtn').addEventListener('click', () => closeModal(docDetailModal));
+    createFolderModal.addEventListener('click', (e) => { if (e.target === createFolderModal) closeModal(createFolderModal); });
+    editFolderModal.addEventListener('click', (e) => { if (e.target === editFolderModal) closeModal(editFolderModal); });
+    uploadModal.addEventListener('click', (e) => { if (e.target === uploadModal) closeModal(uploadModal); });
+    docDetailModal.addEventListener('click', (e) => { if (e.target === docDetailModal) closeModal(docDetailModal); });
+
+    document.getElementById('createBtn').addEventListener('click', () => createFolder().then(()=>closeModal(createFolderModal)).catch(e => showToast(e.message, 'error')));
+    document.getElementById('saveEditFolderBtn').addEventListener('click', async () => {
+      if (!editingFolderId) return;
+      const name = document.getElementById('editName').value.trim();
+      const description = document.getElementById('editDescription').value;
+      const color = document.getElementById('editColor').value;
+      if (!name) return showToast('폴더명을 입력해주세요.', 'error');
+      await api('/api/folders/' + editingFolderId, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, description, color }) });
+      closeModal(editFolderModal);
+      if (getFolderId() === editingFolderId) await renderDetail(editingFolderId);
+      await renderFolders();
+      showToast('폴더가 수정되었습니다.');
+    });
+    document.getElementById('refreshBtn').addEventListener('click', () => renderFolders().catch(e => showToast(e.message, 'error')));
+    document.getElementById('backBtn').addEventListener('click', goHome);
+    document.getElementById('uploadBtn').addEventListener('click', () => uploadDocument().then(()=>closeModal(uploadModal)).catch(e => showToast(e.message, 'error')));
+    document.getElementById('docsRefreshBtn').addEventListener('click', () => renderDetail(getFolderId()).catch(e => showToast(e.message, 'error')));
+    document.getElementById('bulkDeleteBtn').addEventListener('click', () => bulkDeleteDocuments().catch(e => showToast(e.message, 'error')));
+    document.getElementById('applyFilterBtn').addEventListener('click', () => { try { renderDocTable(); } catch(e) { showToast(e.message, 'error'); } });
+    document.getElementById('onlyImportant').addEventListener('change', () => { try { renderDocTable(); } catch(e) { showToast(e.message, 'error'); } });
+    document.getElementById('toggleFilterBtn').addEventListener('click', () => {
+      const panel = document.getElementById('filterPanel');
+      panel.classList.toggle('hidden');
+      document.getElementById('toggleFilterBtn').textContent = panel.classList.contains('hidden') ? '⌃' : '⌄';
+    });
+    ['searchTitle','filterCategory','filterFileType','searchTag'].forEach((id) => {
+      document.getElementById(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') renderDocTable(); });
+    });
+    document.querySelectorAll('.th-sort').forEach((el) => {
+      el.addEventListener('click', () => {
+        const key = el.dataset.sort;
+        if (tableSort.key === key) {
+          tableSort.dir = tableSort.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+          tableSort.key = key;
+          tableSort.dir = key === 'updatedAt' ? 'desc' : 'asc';
+        }
+        renderDocTable();
+      });
+    });
+    document.getElementById('checkAllDocs').addEventListener('change', (e) => { const checked = e.target.checked; document.querySelectorAll('.doc-check').forEach((el) => { el.checked = checked; }); });
+    window.addEventListener('popstate', () => renderRoute().catch(e => showToast(e.message, 'error')));
+
+    if (window.innerWidth <= 768) {
+      const panel = document.getElementById('filterPanel');
+      panel.classList.add('hidden');
+      document.getElementById('toggleFilterBtn').textContent = '⌃';
+    }
+
+    renderRoute().catch(e => showToast(e.message, 'error'));
+  </script>
+</body>
+</html>

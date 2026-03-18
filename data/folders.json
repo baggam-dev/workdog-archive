@@ -1,0 +1,23 @@
+[
+  {
+    "id": "bfaa7cfc-d37e-45db-827e-f78253503ecb",
+    "name": "업로드테스트",
+    "description": "2단계 검증",
+    "color": "#ef4444",
+    "createdAt": "2026-03-17T08:57:32.852Z"
+  },
+  {
+    "id": "da2cf62a-b7b3-45ee-9bc7-713212847bc2",
+    "name": "테스트폴더",
+    "description": "테스트 입니다",
+    "color": "#f59e0b",
+    "createdAt": "2026-03-17T09:27:27.617Z"
+  },
+  {
+    "id": "b9c6c60f-7cba-4ab9-842b-596d860e78dc",
+    "name": "폴더 생서이에요",
+    "description": "ㅇㅇ",
+    "color": "#ce0af5",
+    "createdAt": "2026-03-17T14:08:17.686Z"
+  }
+]
