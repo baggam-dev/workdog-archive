@@ -11,6 +11,12 @@ const { parse: parseHwp } = require('hwp.js/build/cjs.js');
 const app = express();
 const PORT = 3030;
 
+const LEGACY_PUBLIC_DIR = path.join(__dirname, 'public');
+const REACT_DIST_DIR = path.join(__dirname, '..', 'workdog-archive-web', 'dist');
+const FRONTEND_DIR = process.env.WORKDOG_FRONTEND_DIR
+  ? path.resolve(process.env.WORKDOG_FRONTEND_DIR)
+  : (fs.existsSync(path.join(REACT_DIST_DIR, 'index.html')) ? REACT_DIST_DIR : LEGACY_PUBLIC_DIR);
+
 const DATA_DIR = path.join(__dirname, 'data');
 const FILES_DIR = path.join(__dirname, 'files');
 const LEGACY_UPLOAD_DIR = path.join(__dirname, 'uploads'); // migration-only fallback
@@ -75,7 +81,7 @@ const upload = multer({
 });
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(FRONTEND_DIR));
 app.use('/uploads', express.static(FILES_DIR));
 
 function readJson(file, fallback = []) {
@@ -531,5 +537,5 @@ app.post('/api/folders/:id/documents', (req, res) => {
   });
 });
 
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-app.listen(PORT, () => console.log(`workdog-archive listening on ${PORT}`));
+app.get('*', (req, res) => res.sendFile(path.join(FRONTEND_DIR, 'index.html')));
+app.listen(PORT, () => console.log(`workdog-archive listening on ${PORT} (frontend: ${FRONTEND_DIR})`));
