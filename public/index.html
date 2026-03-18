@@ -42,8 +42,8 @@
     .badge-pill.ok { border-color:#b7ddc6; background:#ecfdf3; color:#166534; } .badge-pill.err { border-color:#f2b8b8; background:#fff1f1; color:#991b1b; }
     .doc-pre { white-space:pre-wrap; background:#f8fafc; border:1px solid #d9e1eb; border-radius:8px; padding:10px; max-height:320px; overflow:auto; color:#1f2937; font-size:13px; }
     .toast-wrap { position:fixed; right:18px; bottom:18px; z-index:9999; display:grid; gap:8px; }
-    .toast { min-width:220px; max-width:360px; background:#182448; color:#f6f8ff; border:1px solid #3f4f81; border-radius:10px; padding:10px 12px; font-size:14px; opacity:0; transform:translateY(8px); transition:all .2s ease; }
-    .toast.show { opacity:1; transform:translateY(0); } .toast.error { border-color:#a93f3f; background:#3b1f25; }
+    .toast { min-width:220px; max-width:360px; background:#ffffff; color:#1f2937; border:1px solid #cfd8e4; border-radius:8px; padding:10px 12px; font-size:13px; opacity:0; transform:translateY(8px); transition:all .2s ease; box-shadow:0 8px 18px rgba(15,23,42,.1); }
+    .toast.show { opacity:1; transform:translateY(0); } .toast.error { border-color:#f3b4b4; background:#fff5f5; color:#991b1b; }
     .tags-inline { color:#9dc0ff; font-size:12px; }
     .doc-mobile-list { display:none; gap:10px; }
     .doc-mobile-item { border:1px solid #d9e1ec; background:#fff; border-radius:10px; padding:12px; display:grid; gap:8px; }
@@ -57,8 +57,9 @@
     .titlebar-actions { display:flex; gap:8px; align-items:center; justify-content:flex-end; }
     .overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:10000; padding:14px; }
     .overlay.show { display:flex; }
-    .modal { width:min(680px,100%); background:#131a2e; border:1px solid #2d3f75; border-radius:14px; padding:14px; }
+    .modal { width:min(680px,100%); background:#ffffff; border:1px solid #d8e1ec; border-radius:10px; padding:14px; box-shadow:0 16px 28px rgba(15,23,42,.16); }
     .subpanel { border:1px solid #d9e1ec; border-radius:8px; padding:10px; margin-bottom:10px; background:#fff; }
+    .toolbar-tight button { min-height:32px; padding:6px 10px; font-size:12px; }
     .summary-grid { display:grid; grid-template-columns:repeat(4, minmax(140px,1fr)); gap:8px; margin-bottom:10px; }
     .summary-item { border:1px solid #d9e1ec; border-radius:8px; background:#f8fafc; padding:10px; }
     .summary-label { color:#6b7280; font-size:12px; margin-bottom:6px; }
@@ -133,7 +134,7 @@
         <div id="folderDetailCard"></div>
       </section>
       <section class="card">
-        <div class="row no-stack"><h3>문서 목록</h3><div class="titlebar-actions"><button id="openUploadModalBtn" class="secondary" title="문서 업로드">Upload</button><button id="docsRefreshBtn" class="secondary icon-btn" title="문서목록 새로고침">⟳</button></div></div>
+        <div class="row no-stack toolbar-tight"><h3>문서 목록</h3><div class="titlebar-actions"><button id="openUploadModalBtn" class="secondary" title="문서 업로드">업로드</button><button id="docsRefreshBtn" class="secondary icon-btn" title="문서목록 새로고침">⟳</button></div></div>
         <div class="row" style="margin-bottom:8px;">
           <button id="toggleFilterBtn" class="secondary icon-btn" title="필터 접기/펼치기">⌄</button>
         </div>
