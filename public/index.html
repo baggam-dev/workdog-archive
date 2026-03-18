@@ -63,11 +63,15 @@
     .summary-item { border:1px solid #d9e1ec; border-radius:8px; background:#f8fafc; padding:10px; }
     .summary-label { color:#6b7280; font-size:12px; margin-bottom:6px; }
     .summary-value { font-size:20px; font-weight:700; color:#111827; }
-    .doc-actions { display:flex; gap:6px; align-items:center; }
+    .doc-actions { display:flex; gap:6px; align-items:center; position:relative; }
     .mini-btn { min-height:30px; padding:4px 8px; border-radius:6px; font-size:12px; }
     .more-btn { width:30px; min-width:30px; padding:0; border-radius:6px; }
     .important-star { background:transparent; border:0; min-height:auto; padding:0; font-size:20px; line-height:1; cursor:pointer; color:#9ca3af; }
     .important-star.on { color:#f59e0b; text-shadow:0 0 0.5px #b45309, 0 0 6px rgba(245,158,11,.28); }
+    .menu-wrap { position:relative; }
+    .action-menu { position:absolute; right:0; top:34px; min-width:128px; background:#fff; border:1px solid #d8e1ec; border-radius:8px; box-shadow:0 8px 18px rgba(15,23,42,.12); padding:4px; z-index:20; }
+    .action-menu button { width:100%; text-align:left; border:0; background:transparent; color:#1f2937; padding:8px; min-height:auto; border-radius:6px; font-size:13px; }
+    .action-menu button:hover { background:#f3f6fb; }
 
     @media (max-width: 900px) {
       .wrap { padding: 0 10px; margin: 14px auto; }
@@ -260,6 +264,7 @@
     const defaultSort = { key: 'updatedAt', dir: 'desc' };
     let tableSort = { ...defaultSort };
     let activeDocIndex = -1;
+    let openMenuDocId = null;
 
     const escapeHtml = (v) => String(v || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
     const formatKST = (iso) => { try { return new Date(iso).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}); } catch { return iso; } };
@@ -502,7 +507,16 @@
           <td>
             <div class="doc-actions">
               <button class="secondary mini-btn" onclick="openDocDetail('${escapeHtml(d.id)}')">보기</button>
-              <button class="secondary more-btn" onclick="openDocMenu('${escapeHtml(d.id)}')">⋯</button>
+              <div class="menu-wrap">
+                <button class="secondary more-btn" onclick="toggleActionMenu(event, '${escapeHtml(d.id)}')">⋯</button>
+                ${openMenuDocId === d.id ? `
+                  <div class="action-menu">
+                    <button onclick="openDocDetail('${escapeHtml(d.id)}')">상세 보기</button>
+                    <button onclick="openDocFile('${escapeHtml(d.id)}')">파일 열기</button>
+                    <button onclick="deleteDocument('${escapeHtml(d.id)}')" style="color:#b91c1c;">삭제</button>
+                  </div>
+                ` : ''}
+              </div>
             </div>
           </td>
         </tr>`).join('');
@@ -562,7 +576,10 @@
     }
 
     window.openFolder = (id) => goFolder(id);
-    window.openDocDetail = (docId) => renderDocDetail(docId).catch((e) => showToast(e.message, 'error'));
+    window.openDocDetail = (docId) => {
+      openMenuDocId = null;
+      return renderDocDetail(docId).catch((e) => showToast(e.message, 'error'));
+    };
 
     window.toggleImportant = async (docId) => {
       const doc = currentDocs.find((d) => d.id === docId);
@@ -576,21 +593,17 @@
       showToast(!doc.isImportant ? '중요 문서로 표시했습니다.' : '중요 표시를 해제했습니다.');
     };
 
-    window.openDocMenu = async (docId) => {
+    window.toggleActionMenu = (e, docId) => {
+      e.stopPropagation();
+      openMenuDocId = openMenuDocId === docId ? null : docId;
+      renderDocTable();
+    };
+
+    window.openDocFile = (docId) => {
       const target = currentDocs.find((d) => d.id === docId);
       if (!target) return;
-      const choice = prompt('작업 선택: 1) 파일 열기  2) 상세 보기  3) 삭제');
-      if (choice === '1') {
-        window.open('/uploads/' + encodeURIComponent(target.storedName), '_blank');
-        return;
-      }
-      if (choice === '2') {
-        openDocDetail(docId);
-        return;
-      }
-      if (choice === '3') {
-        await window.deleteDocument(docId);
-      }
+      openMenuDocId = null;
+      window.open('/uploads/' + encodeURIComponent(target.storedName), '_blank');
     };
 
     window.saveMemo = async (docId) => {
@@ -623,7 +636,7 @@
       }
     };
 
-    window.deleteDocument = async (docId) => { const folderId = getFolderId(); if (!folderId) return; if (!confirm('이 파일을 삭제하시겠습니까?')) return; await api('/api/folders/' + folderId + '/documents/' + docId, { method:'DELETE' }); await renderDetail(folderId); showToast('문서 1건이 삭제되었습니다.'); };
+    window.deleteDocument = async (docId) => { const folderId = getFolderId(); if (!folderId) return; if (!confirm('이 파일을 삭제하시겠습니까?')) return; openMenuDocId = null; await api('/api/folders/' + folderId + '/documents/' + docId, { method:'DELETE' }); await renderDetail(folderId); showToast('문서 1건이 삭제되었습니다.'); };
 
     async function bulkDeleteDocuments() {
       const folderId = getFolderId(); if (!folderId) return;
@@ -725,6 +738,11 @@
     });
     document.getElementById('checkAllDocs').addEventListener('change', (e) => { const checked = e.target.checked; document.querySelectorAll('.doc-check').forEach((el) => { el.checked = checked; }); });
     window.addEventListener('popstate', () => renderRoute().catch(e => showToast(e.message, 'error')));
+    document.addEventListener('click', () => {
+      if (!openMenuDocId) return;
+      openMenuDocId = null;
+      renderDocTable();
+    });
 
     if (window.innerWidth <= 768) {
       const panel = document.getElementById('filterPanel');
