@@ -81,6 +81,16 @@ const upload = multer({
 });
 
 app.use(express.json());
+
+// CORS: React 프론트(3000)에서 API(3030) 호출 허용
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 app.use(express.static(FRONTEND_DIR));
 app.use('/uploads', express.static(FILES_DIR));
 
