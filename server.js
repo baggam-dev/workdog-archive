@@ -300,6 +300,7 @@ function summarizeTextHeuristic(text) {
 }
 
 const taskStore = new Map();
+const taskRetryHandlers = new Map();
 
 function createTask(type) {
   const now = new Date().toISOString();
@@ -326,6 +327,12 @@ function createTask(type) {
 
 function getTask(taskId) {
   return taskStore.get(taskId) || null;
+}
+
+function listTasks({ status } = {}) {
+  const tasks = Array.from(taskStore.values());
+  if (!status) return tasks;
+  return tasks.filter((t) => t.status === status);
 }
 
 function updateTask(taskId, patch) {
@@ -549,6 +556,60 @@ app.get('/api/documents/:docId', (req, res) => {
   return res.json(doc);
 });
 
+app.get('/tasks/summary', (req, res) => {
+  const tasks = listTasks();
+  const now = new Date();
+  const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+  const runningCount = tasks.filter((t) => t.status === 'running' || t.status === 'retrying').length;
+  const failedCount = tasks.filter((t) => t.status === 'error').length;
+  const completedToday = tasks.filter((t) => t.status === 'done' && new Date(t.updatedAt) >= startOfToday).length;
+  const recentTasks = tasks
+    .slice()
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+    .slice(0, 5);
+
+  return res.json({
+    runningCount,
+    failedCount,
+    completedToday,
+    recentTasks,
+  });
+});
+
+app.get('/tasks', (req, res) => {
+  const status = typeof req.query.status === 'string' ? req.query.status : '';
+  const tasks = listTasks({ status: status || undefined })
+    .slice()
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  return res.json(tasks);
+});
+
+app.get('/tasks/:id', (req, res) => {
+  const task = getTask(req.params.id);
+  if (!task) return res.status(404).json({ error: 'task not found' });
+  return res.json(task);
+});
+
+app.post('/tasks/:id/retry', async (req, res) => {
+  const taskId = req.params.id;
+  const task = getTask(taskId);
+  if (!task) return res.status(404).json({ error: 'task not found' });
+
+  const handler = taskRetryHandlers.get(taskId);
+  if (!handler) {
+    return res.status(400).json({ error: 'retry handler not found for task' });
+  }
+
+  updateTask(taskId, { status: 'pending' });
+  appendTaskLog(taskId, 'manual retry requested');
+  task.steps.forEach((step) => updateTaskStep(taskId, step.id, { status: 'pending', error: '' }));
+
+  handler();
+  return res.status(202).json({ task_id: taskId, status: 'pending' });
+});
+
+// backward compatibility
 app.get('/api/tasks/:taskId', (req, res) => {
   const task = getTask(req.params.taskId);
   if (!task) return res.status(404).json({ error: 'task not found' });
@@ -643,7 +704,7 @@ app.post('/api/folders/:id/documents', (req, res) => {
     docs.push(doc);
     writeDocuments(docs);
 
-    runDocumentPipelineTask({
+    const runPipeline = () => runDocumentPipelineTask({
       taskId: task.id,
       docId,
       folderId,
@@ -653,6 +714,9 @@ app.post('/api/folders/:id/documents', (req, res) => {
       fileBuffer: req.file.buffer,
       maxRetry: 2,
     });
+
+    taskRetryHandlers.set(task.id, runPipeline);
+    runPipeline();
 
     return res.status(202).json({
       task_id: task.id,
