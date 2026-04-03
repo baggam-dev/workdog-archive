@@ -56,21 +56,8 @@ function resolveStoredPath(doc) {
   return path.join(FILES_DIR, storedName);
 }
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const folderId = req.params?.id;
-    if (!folderId) return cb(new Error('folder id is required'));
-    cb(null, ensureFolderFilesDir(folderId));
-  },
-  filename: (req, file, cb) => {
-    const originalName = normalizeOriginalName(file.originalname);
-    const ext = path.extname(originalName).toLowerCase();
-    cb(null, `${Date.now()}-${crypto.randomUUID()}${ext}`);
-  },
-});
-
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 30 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const originalName = normalizeOriginalName(file.originalname);
@@ -312,86 +299,190 @@ function summarizeTextHeuristic(text) {
   };
 }
 
-async function runAIForDocument(docId) {
+const taskStore = new Map();
+
+function createTask(type) {
+  const now = new Date().toISOString();
+  const task = {
+    id: crypto.randomUUID(),
+    type,
+    status: 'pending',
+    steps: [
+      { id: 'save-file', name: 'save file', status: 'pending', tool: 'fs.writeFileSync', input: null, output: null, error: '' },
+      { id: 'extract-text', name: 'extract text', status: 'pending', tool: 'extractTextFromFile', input: null, output: null, error: '' },
+      { id: 'summarize', name: 'summarize', status: 'pending', tool: 'summarizeTextHeuristic', input: null, output: null, error: '' },
+      { id: 'generate-metadata', name: 'generate metadata', status: 'pending', tool: 'metadata-builder', input: null, output: null, error: '' },
+      { id: 'save-result', name: 'save result', status: 'pending', tool: 'writeDocuments', input: null, output: null, error: '' },
+    ],
+    logs: [],
+    retryCount: 0,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  taskStore.set(task.id, task);
+  return task;
+}
+
+function getTask(taskId) {
+  return taskStore.get(taskId) || null;
+}
+
+function updateTask(taskId, patch) {
+  const task = taskStore.get(taskId);
+  if (!task) return null;
+  const next = { ...task, ...patch, updatedAt: new Date().toISOString() };
+  taskStore.set(taskId, next);
+  return next;
+}
+
+function appendTaskLog(taskId, message) {
+  const task = taskStore.get(taskId);
+  if (!task) return null;
+  return updateTask(taskId, {
+    logs: [...task.logs, { message: String(message), timestamp: new Date().toISOString() }],
+  });
+}
+
+function updateTaskStep(taskId, stepId, patch) {
+  const task = taskStore.get(taskId);
+  if (!task) return null;
+  const steps = task.steps.map((step) => (step.id === stepId ? { ...step, ...patch } : step));
+  return updateTask(taskId, { steps });
+}
+
+function updateDocument(docId, patch) {
   const docs = readDocuments();
   const idx = docs.findIndex((d) => d.id === docId);
   if (idx === -1) return null;
-
-  const doc = docs[idx];
-  if (doc.extractStatus !== 'success' || !doc.extractedText) {
-    docs[idx] = {
-      ...doc,
-      aiStatus: 'pending',
-      aiError: 'skipped: extraction not successful',
-      summaryOneLine: '',
-      keyPoints: [],
-      category: '',
-      tags: [],
-    };
-    writeDocuments(docs);
-    return docs[idx];
-  }
-
-  try {
-    const ai = summarizeTextHeuristic(doc.extractedText);
-    docs[idx] = {
-      ...doc,
-      ...ai,
-      aiStatus: 'success',
-      aiError: '',
-      status: doc.status,
-    };
-  } catch (e) {
-    docs[idx] = {
-      ...doc,
-      aiStatus: 'failed',
-      aiError: e?.message ? String(e.message) : 'ai summarize failed',
-      summaryOneLine: '',
-      keyPoints: [],
-      category: '',
-      tags: [],
-    };
-  }
-
+  docs[idx] = { ...docs[idx], ...patch };
   writeDocuments(docs);
   return docs[idx];
 }
 
-async function runExtractionForDocument(docId) {
-  const docs = readDocuments();
-  const idx = docs.findIndex((d) => d.id === docId);
-  if (idx === -1) return null;
+async function runTaskWithRetry(taskId, runner, maxRetry = 2) {
+  let lastError = null;
 
-  const doc = docs[idx];
-  const fullPath = resolveStoredPath(doc);
+  for (let attempt = 0; attempt <= maxRetry; attempt += 1) {
+    updateTask(taskId, { status: attempt === 0 ? 'running' : 'retrying', retryCount: attempt });
+    appendTaskLog(taskId, `attempt ${attempt + 1} started`);
 
-  try {
-    const result = await extractTextFromFile(fullPath, doc.fileType);
-    docs[idx] = {
-      ...doc,
-      extractedText: result.text || '',
-      extractStatus: 'success',
-      extractError: '',
-      extractMethod: result.method || '',
-      aiStatus: 'pending',
-      aiError: '',
-      status: 'EXTRACTED',
-    };
-  } catch (e) {
-    docs[idx] = {
-      ...doc,
-      extractedText: '',
-      extractStatus: 'failed',
-      extractError: e?.message ? String(e.message) : 'extract failed',
-      extractMethod: '',
-      aiStatus: 'pending',
-      aiError: 'skipped: extraction failed',
-      status: 'EXTRACT_FAILED',
-    };
+    try {
+      await runner();
+      updateTask(taskId, { status: 'done' });
+      appendTaskLog(taskId, `attempt ${attempt + 1} succeeded`);
+      return getTask(taskId);
+    } catch (e) {
+      lastError = e;
+      appendTaskLog(taskId, `attempt ${attempt + 1} failed: ${e?.message || String(e)}`);
+      if (attempt === maxRetry) {
+        updateTask(taskId, { status: 'error', retryCount: attempt });
+      }
+    }
   }
 
-  writeDocuments(docs);
-  return docs[idx];
+  throw lastError || new Error('task failed');
+}
+
+async function runDocumentPipelineTask({ taskId, docId, folderId, title, originalName, ext, fileBuffer, maxRetry = 2 }) {
+  const context = {
+    storedName: '',
+    fullPath: '',
+    extractedText: '',
+    extractMethod: '',
+    summaryOneLine: '',
+    keyPoints: [],
+    category: '',
+    tags: [],
+  };
+
+  async function runStep(stepId, input, fn) {
+    updateTaskStep(taskId, stepId, { status: 'running', input, error: '' });
+    appendTaskLog(taskId, `[${stepId}] started`);
+
+    try {
+      const output = await fn();
+      updateTaskStep(taskId, stepId, { status: 'done', output, error: '' });
+      appendTaskLog(taskId, `[${stepId}] done`);
+      return output;
+    } catch (e) {
+      const msg = e?.message ? String(e.message) : String(e);
+      updateTaskStep(taskId, stepId, { status: 'error', error: msg });
+      appendTaskLog(taskId, `[${stepId}] error: ${msg}`);
+      throw e;
+    }
+  }
+
+  try {
+    await runTaskWithRetry(taskId, async () => {
+      await runStep('save-file', { folderId, originalName }, async () => {
+        const fileName = `${Date.now()}-${crypto.randomUUID()}.${ext}`;
+        const folderDir = ensureFolderFilesDir(folderId);
+        const fullPath = path.join(folderDir, fileName);
+        fs.writeFileSync(fullPath, fileBuffer);
+
+        context.storedName = `${folderId}/${fileName}`;
+        context.fullPath = fullPath;
+
+        return { storedName: context.storedName };
+      });
+
+      await runStep('extract-text', { fileType: ext }, async () => {
+        const result = await extractTextFromFile(context.fullPath, ext);
+        context.extractedText = result.text || '';
+        context.extractMethod = result.method || '';
+        return { method: context.extractMethod, extractedLength: context.extractedText.length };
+      });
+
+      await runStep('summarize', { extractedLength: context.extractedText.length }, async () => {
+        const result = summarizeTextHeuristic(context.extractedText);
+        context.summaryOneLine = result.summaryOneLine || '';
+        context.keyPoints = Array.isArray(result.keyPoints) ? result.keyPoints : [];
+        context.category = result.category || '기타';
+        context.tags = Array.isArray(result.tags) ? result.tags : [];
+        return { summaryOneLine: context.summaryOneLine, keyPointsCount: context.keyPoints.length };
+      });
+
+      await runStep('generate-metadata', { category: context.category }, async () => ({
+        category: context.category,
+        tags: context.tags,
+      }));
+
+      await runStep('save-result', { docId }, async () => {
+        const updated = updateDocument(docId, {
+          title,
+          fileName: originalName,
+          storedName: context.storedName,
+          fileType: ext,
+          size: fileBuffer.length,
+          status: 'DONE',
+          extractedText: context.extractedText,
+          extractStatus: 'success',
+          extractError: '',
+          extractMethod: context.extractMethod,
+          summaryOneLine: context.summaryOneLine,
+          keyPoints: context.keyPoints,
+          category: context.category,
+          tags: context.tags,
+          aiStatus: 'success',
+          aiError: '',
+          updatedAt: new Date().toISOString(),
+        });
+
+        if (!updated) throw new Error('document not found while saving result');
+        return { documentId: updated.id, status: updated.status };
+      });
+    }, maxRetry);
+  } catch (e) {
+    updateDocument(docId, {
+      status: 'ERROR',
+      extractStatus: 'failed',
+      extractError: e?.message ? String(e.message) : 'pipeline failed',
+      aiStatus: 'failed',
+      aiError: e?.message ? String(e.message) : 'pipeline failed',
+      updatedAt: new Date().toISOString(),
+    });
+  }
 }
 
 app.get('/api/folders', (req, res) => res.json(readFolders()));
@@ -458,6 +549,12 @@ app.get('/api/documents/:docId', (req, res) => {
   return res.json(doc);
 });
 
+app.get('/api/tasks/:taskId', (req, res) => {
+  const task = getTask(req.params.taskId);
+  if (!task) return res.status(404).json({ error: 'task not found' });
+  return res.json(task);
+});
+
 app.patch('/api/documents/:docId', (req, res) => {
   const docs = readDocuments();
   const idx = docs.findIndex((d) => d.id === req.params.docId);
@@ -504,7 +601,7 @@ app.post('/api/folders/:id/documents', (req, res) => {
   const folderId = req.params.id;
   if (!findFolder(folderId)) return res.status(404).json({ error: 'folder not found' });
 
-  upload.single('file')(req, res, async (err) => {
+  upload.single('file')(req, res, (err) => {
     if (err) return res.status(400).json({ error: err.message || 'upload failed' });
     if (!req.file) return res.status(400).json({ error: 'file is required' });
 
@@ -513,19 +610,24 @@ app.post('/api/folders/:id/documents', (req, res) => {
     const titleRaw = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
     const title = titleRaw || path.parse(originalName).name;
 
+    const task = createTask('archive.document.process');
+    const docId = crypto.randomUUID();
+
     const doc = {
-      id: crypto.randomUUID(),
+      id: docId,
       folderId,
       title,
       fileName: originalName,
-      storedName: `${folderId}/${req.file.filename}`, 
+      storedName: '',
       fileType: ext,
       size: req.file.size,
       uploadedAt: new Date().toISOString(),
-      status: 'UPLOADED',
+      updatedAt: new Date().toISOString(),
+      status: 'PROCESSING',
+      taskId: task.id,
       extractedText: '',
-      extractStatus: 'failed',
-      extractError: 'not processed',
+      extractStatus: 'pending',
+      extractError: '',
       extractMethod: '',
       summaryOneLine: '',
       keyPoints: [],
@@ -541,9 +643,22 @@ app.post('/api/folders/:id/documents', (req, res) => {
     docs.push(doc);
     writeDocuments(docs);
 
-    await runExtractionForDocument(doc.id);
-    const finalDoc = await runAIForDocument(doc.id);
-    return res.status(201).json(finalDoc || doc);
+    runDocumentPipelineTask({
+      taskId: task.id,
+      docId,
+      folderId,
+      title,
+      originalName,
+      ext,
+      fileBuffer: req.file.buffer,
+      maxRetry: 2,
+    });
+
+    return res.status(202).json({
+      task_id: task.id,
+      document_id: docId,
+      status: task.status,
+    });
   });
 });
 
