@@ -194,11 +194,31 @@ function extractHwpViaStrings(fullPath) {
   return text;
 }
 
+function postProcessHwpText(text) {
+  const clean = String(text || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/<표>/g, '\n\n[TABLE]\n')
+    .replace(/<그림>/g, '\n\n[IMAGE]\n')
+    .trim();
+  return clean;
+}
+
 async function extractHwpText(fullPath) {
   const errors = [];
-  try { return { text: extractHwpViaHwp5txt(fullPath), method: 'hwp5txt' }; } catch (e) { errors.push(`hwp5txt: ${e.message}`); }
-  try { return { text: await extractHwpViaHwpJs(fullPath), method: 'hwp.js' }; } catch (e) { errors.push(`hwp.js: ${e.message}`); }
-  try { return { text: extractHwpViaStrings(fullPath), method: 'strings-fallback' }; } catch (e) { errors.push(`strings: ${e.message}`); }
+  try {
+    const result = { text: extractHwpViaHwp5txt(fullPath), method: 'hwp5txt' };
+    return { ...result, text: postProcessHwpText(result.text) };
+  } catch (e) { errors.push(`hwp5txt: ${e.message}`); }
+  try {
+    const result = { text: await extractHwpViaHwpJs(fullPath), method: 'hwp.js' };
+    return { ...result, text: postProcessHwpText(result.text) };
+  } catch (e) { errors.push(`hwp.js: ${e.message}`); }
+  try {
+    const result = { text: extractHwpViaStrings(fullPath), method: 'strings-fallback' };
+    return { ...result, text: postProcessHwpText(result.text) };
+  } catch (e) { errors.push(`strings: ${e.message}`); }
   throw new Error(`hwp extraction failed (${errors.join(' | ')})`);
 }
 
@@ -235,7 +255,14 @@ function buildStructuredContent(text) {
     .split(/\n\s*\n+/)
     .map((chunk) => chunk.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
-    .map((chunk) => ({ type: 'paragraph', text: chunk }));
+    .map((chunk) => {
+      if (chunk === '[TABLE]') return { type: 'table-placeholder', text: '표 영역' };
+      if (chunk === '[IMAGE]') return { type: 'image-placeholder', text: '그림 영역' };
+      if (/^(□|■|▪|▶|[0-9]+\.|[가-힣A-Za-z0-9 ]{2,40})$/.test(chunk) && chunk.length <= 50) {
+        return { type: 'heading', text: chunk };
+      }
+      return { type: 'paragraph', text: chunk };
+    });
 
   return { blocks };
 }
