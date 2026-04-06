@@ -780,6 +780,46 @@ app.patch('/api/generated-documents/:id', (req, res) => {
   return res.json(docs[idx]);
 });
 
+app.post('/api/generated-documents/:id/regenerate', (req, res) => {
+  const docs = readGeneratedDocuments();
+  const baseDoc = docs.find((item) => item.id === req.params.id);
+  if (!baseDoc) return res.status(404).json({ error: 'generated document not found' });
+
+  const prompt = typeof req.body?.prompt === 'string' && req.body.prompt.trim()
+    ? req.body.prompt.trim()
+    : String(baseDoc.prompt || '').trim();
+
+  let sourceDocs;
+  try {
+    sourceDocs = buildGenerationSourceDocuments(baseDoc.sourceDocumentIds || []);
+  } catch (e) {
+    return res.status(400).json({ error: e?.message || '유효한 문서를 찾을 수 없습니다.' });
+  }
+
+  const draft = generateDraftFromDocuments({ documents: sourceDocs, prompt });
+  const now = new Date().toISOString();
+  const regeneratedDoc = {
+    id: crypto.randomUUID(),
+    title: draft.title,
+    prompt,
+    sourceDocumentIds: sourceDocs.map((doc) => doc.id),
+    sourceDocumentsPreview: sourceDocs.map((doc) => ({
+      id: doc.id,
+      title: doc.title,
+      category: doc.category,
+    })),
+    contentText: draft.contentText,
+    contentHtml: draft.contentHtml || '',
+    regeneratedFromId: baseDoc.id,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  docs.push(regeneratedDoc);
+  writeGeneratedDocuments(docs);
+  return res.status(201).json(regeneratedDoc);
+});
+
 app.patch('/api/documents/:docId', (req, res) => {
   const docs = readDocuments();
   const idx = docs.findIndex((d) => d.id === req.params.docId);
