@@ -476,38 +476,74 @@ function generateDraftFromDocuments({ documents, prompt }) {
   const mergedKeywords = Array.from(new Set(documents.flatMap((doc) => Array.isArray(doc.tags) ? doc.tags : []).filter(Boolean))).slice(0, 10);
   const keywordLine = mergedKeywords.length ? mergedKeywords.join(', ') : '핵심 키워드 없음';
 
+  const normalizedPrompt = cleanPrompt.toLowerCase();
+  const isNotice = /가정통신문|안내문|안내/.test(cleanPrompt);
+  const isMeeting = /회의/.test(cleanPrompt);
+  const isPlan = /계획/.test(cleanPrompt);
+  const isEvaluation = /평가/.test(cleanPrompt);
+
+  let mainSections = [
+    '1. 문서 목적\n선택된 참고 문서들의 공통 주제와 핵심 내용을 반영하여 요청에 맞는 초안을 작성합니다. 기존 문서에서 반복적으로 등장한 표현과 주요 항목을 우선 반영합니다.',
+    `2. 주요 반영 사항\n${sourceSummaries}`,
+    '3. 초안 본문\n본 문서는 요청 작업을 위해 작성한 초안입니다. 참고 문서에서 확인된 핵심 내용, 일정 관련 표현, 운영 방향, 안내 문구를 토대로 재구성하였습니다. 실제 사용 전 대상, 일정, 담당자, 세부 운영 방식은 현재 상황에 맞게 수정해 사용합니다.',
+    `4. 참고 키워드\n${keywordLine}`,
+  ];
+
+  if (isNotice) {
+    mainSections = [
+      '1. 안내 목적\n가정과 학생에게 전달해야 할 핵심 내용을 빠르게 이해할 수 있도록 정리합니다.',
+      '2. 주요 안내사항\n대상, 일정, 준비물, 참여 방법, 유의사항을 빠짐없이 포함하도록 구성합니다.',
+      '3. 안내문 초안\n안녕하세요. 관련 내용을 안내드립니다. 아래 일정을 확인해 주시고 필요한 준비를 부탁드립니다. 세부 내용은 학교 일정과 운영 계획에 맞게 조정해 사용합니다.',
+      `4. 참고 요약\n${sourceSummaries}`,
+    ];
+  } else if (isMeeting) {
+    mainSections = [
+      '1. 회의 목적\n이번 회의에서 다루어야 할 배경과 목적을 먼저 정리합니다.',
+      '2. 주요 안건\n안건별로 현재 상황, 논의 필요 사항, 결정 포인트를 구분해 정리합니다.',
+      '3. 후속 조치\n회의 후 담당자, 일정, 점검 항목을 바로 연결할 수 있게 적습니다.',
+      `4. 참고 요약\n${sourceSummaries}`,
+    ];
+  } else if (isPlan || isEvaluation || normalizedPrompt.includes('계획')) {
+    mainSections = [
+      '1. 추진 배경 및 목적\n문서의 작성 목적과 운영 배경을 간단히 정리합니다.',
+      '2. 운영 방향\n전체 운영 원칙, 중점 사항, 고려해야 할 기준을 적습니다.',
+      '3. 세부 계획\n시기별 또는 항목별 세부 계획을 정리합니다. 필요한 경우 월별, 학기별, 단계별 구분을 넣어 사용합니다.',
+      '4. 기대 효과 및 준비사항\n실행 이후 기대 효과와 사전 준비사항을 정리합니다.',
+      `5. 참고 요약\n${sourceSummaries}`,
+    ];
+  }
+
   let contentText = [
     `[요청]`,
     cleanPrompt,
     '',
+    `[문서 제목]`,
+    title,
+    '',
     `[참고 문서]`,
     sourceTitles,
     '',
-    `[초안]`,
-    `${cleanPrompt} 요청을 바탕으로 기존 문서 내용을 참고해 초안을 정리합니다. 아래 초안은 업로드된 문서의 핵심 내용과 표현을 참고해 바로 수정 가능한 형태로 구성했습니다.`,
-    '',
-    `1. 문서 목적`,
-    `선택된 참고 문서들의 공통 주제와 핵심 내용을 반영하여 ${cleanPrompt}에 맞는 실무 초안을 작성합니다. 기존 문서에서 반복적으로 등장한 표현과 주요 항목을 우선 반영합니다.`,
-    '',
-    `2. 주요 반영 사항`,
-    sourceSummaries,
-    '',
-    `3. 초안 본문`,
-    `본 문서는 ${cleanPrompt} 작업을 위해 작성한 초안입니다. 참고 문서에서 확인된 핵심 내용, 일정 관련 표현, 운영 방향, 안내 문구를 토대로 재구성하였습니다. 실제 사용 전 대상, 일정, 담당자, 세부 운영 방식은 현재 상황에 맞게 수정해 사용합니다.`,
-    '',
-    `4. 참고 키워드`,
-    keywordLine,
+    `[초안 본문]`,
+    ...mainSections,
     '',
     `[참고 내용 정리]`,
     snippets,
-  ].join('\n');
+  ].join('\n\n');
 
-  if (contentText.length < 500) {
-    contentText += `\n\n[보강 문단]\n이 초안은 1차 생성 결과이며, 문서 형식과 세부 항목은 실제 업무 목적에 따라 추가 수정이 필요합니다. 특히 연도, 학년, 일정, 대상, 운영 시간, 제출 방식, 평가 기준 등은 최신 기준으로 다시 확인해 반영하는 것을 권장합니다. 참고 문서들 사이에 공통적으로 나타나는 표현은 유지하되, 불필요하게 반복되는 문장은 정리하여 최종 문서의 가독성을 높이는 방식으로 다듬어 사용합니다.`;
+  if (contentText.length < 650) {
+    contentText += `\n\n[보강 문단]\n이 초안은 바로 검토와 수정이 가능한 업무용 초안입니다. 참고 문서에서 반복적으로 등장한 표현을 최대한 유지하면서도 현재 요청에 맞게 재구성했습니다. 실제 적용 시 연도, 학년, 일정, 대상, 담당자, 제출 방식, 운영 세부 기준은 최신 상황에 맞춰 다시 확인해 반영하는 것을 권장합니다.`;
   }
 
-  const paragraphs = contentText.split('\n\n').map((chunk) => `<p>${chunk.replace(/\n/g, '<br />')}</p>`).join('\n');
-  const contentHtml = `<h1>${title}</h1>\n${paragraphs}`;
+  const htmlSections = contentText.split('\n\n').map((chunk) => {
+    const trimmed = chunk.trim();
+    if (/^\[[^\]]+\]$/.test(trimmed)) return `<h2>${trimmed.replace(/^\[|\]$/g, '')}</h2>`;
+    if (/^\d+\./.test(trimmed)) {
+      const [first, ...rest] = trimmed.split('\n');
+      return `<h3>${first}</h3>${rest.length ? `<p>${rest.join('<br />')}</p>` : ''}`;
+    }
+    return `<p>${trimmed.replace(/\n/g, '<br />')}</p>`;
+  }).join('\n');
+  const contentHtml = `<h1>${title}</h1>\n${htmlSections}`;
 
   return {
     title,
