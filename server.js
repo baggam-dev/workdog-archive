@@ -416,7 +416,13 @@ function buildGenerationSourceDocuments(documentIds) {
   const normalized = sourceDocs.map((doc) => {
     const extractedText = String(doc?.extractedText || '').trim();
     const summaryOneLine = String(doc?.summaryOneLine || '').trim();
-    const fallbackText = extractedText || summaryOneLine || String(doc?.title || '').trim();
+    const structuredBlocks = Array.isArray(doc?.structuredContent?.blocks) ? doc.structuredContent.blocks : [];
+    const structuredSnippet = structuredBlocks
+      .map((block) => String(block?.text || '').trim())
+      .filter(Boolean)
+      .slice(0, 5)
+      .join('\n');
+    const fallbackText = extractedText || structuredSnippet || summaryOneLine || String(doc?.title || '').trim();
 
     return {
       id: doc.id,
@@ -425,6 +431,7 @@ function buildGenerationSourceDocuments(documentIds) {
       tags: Array.isArray(doc.tags) ? doc.tags : [],
       extractedText,
       summaryOneLine,
+      structuredBlocks,
       textForGeneration: fallbackText,
     };
   }).filter((doc) => doc.textForGeneration);
@@ -447,12 +454,22 @@ function generateDraftFromDocuments({ documents, prompt }) {
   const title = buildGenerationPromptTitle(cleanPrompt);
   const sourceTitles = documents.map((doc) => `- ${doc.title}`).join('\n');
   const sourceSummaries = documents.map((doc, index) => {
-    const body = String(doc.summaryOneLine || doc.textForGeneration || '').replace(/\s+/g, ' ').trim();
+    const blockSummary = (doc.structuredBlocks || [])
+      .map((block) => String(block?.text || '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .slice(0, 2)
+      .join(' / ');
+    const body = String(blockSummary || doc.summaryOneLine || doc.textForGeneration || '').replace(/\s+/g, ' ').trim();
     return `${index + 1}. ${doc.title}: ${body.slice(0, 160) || '요약 정보 없음'}`;
   }).join('\n');
 
   const snippets = documents.map((doc, index) => {
-    const body = String(doc.textForGeneration || '').replace(/\s+/g, ' ').trim();
+    const blockLines = (doc.structuredBlocks || [])
+      .map((block) => String(block?.text || '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .slice(0, 3)
+      .join('\n');
+    const body = String(blockLines || doc.textForGeneration || '').replace(/\s+/g, ' ').trim();
     return `[참고문서 ${index + 1}] ${doc.title}\n${body.slice(0, 240) || '본문 없음'}`;
   }).join('\n\n');
 
