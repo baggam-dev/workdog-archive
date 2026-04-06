@@ -480,24 +480,47 @@ function generateDraftFromDocuments({ documents, prompt }) {
   const cleanPrompt = String(prompt || '').replace(/\s+/g, ' ').trim();
   const title = buildGenerationPromptTitle(cleanPrompt);
   const sourceTitles = documents.map((doc) => `- ${doc.title}`).join('\n');
+
   const sourceSummaries = documents.map((doc, index) => {
-    const blockSummary = (doc.structuredBlocks || [])
+    const headingSummary = (doc.structuredBlocks || [])
+      .filter((block) => block?.type === 'heading')
       .map((block) => String(block?.text || '').replace(/\s+/g, ' ').trim())
       .filter(Boolean)
       .slice(0, 2)
       .join(' / ');
-    const body = String(blockSummary || doc.summaryOneLine || doc.textForGeneration || '').replace(/\s+/g, ' ').trim();
-    return `${index + 1}. ${doc.title}: ${body.slice(0, 160) || '요약 정보 없음'}`;
+    const paragraphSummary = (doc.structuredBlocks || [])
+      .filter((block) => block?.type === 'paragraph')
+      .map((block) => String(block?.text || '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .slice(0, 2)
+      .join(' / ');
+    const markerSummary = (doc.structuredBlocks || [])
+      .filter((block) => block?.type === 'table-placeholder' || block?.type === 'image-placeholder')
+      .map((block) => block?.type === 'table-placeholder' ? '표 포함' : '그림 포함')
+      .join(', ');
+    const body = String(headingSummary || paragraphSummary || doc.summaryOneLine || doc.textForGeneration || '').replace(/\s+/g, ' ').trim();
+    const suffix = markerSummary ? ` (${markerSummary})` : '';
+    return `${index + 1}. ${doc.title}: ${body.slice(0, 160) || '요약 정보 없음'}${suffix}`;
   }).join('\n');
 
   const snippets = documents.map((doc, index) => {
-    const blockLines = (doc.structuredBlocks || [])
+    const headingLines = (doc.structuredBlocks || [])
+      .filter((block) => block?.type === 'heading')
       .map((block) => String(block?.text || '').replace(/\s+/g, ' ').trim())
       .filter(Boolean)
-      .slice(0, 3)
-      .join('\n');
-    const body = String(blockLines || doc.textForGeneration || '').replace(/\s+/g, ' ').trim();
-    return `[참고문서 ${index + 1}] ${doc.title}\n${body.slice(0, 240) || '본문 없음'}`;
+      .slice(0, 3);
+    const paragraphLines = (doc.structuredBlocks || [])
+      .filter((block) => block?.type === 'paragraph')
+      .map((block) => String(block?.text || '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .slice(0, 2);
+    const markerLines = (doc.structuredBlocks || [])
+      .filter((block) => block?.type === 'table-placeholder' || block?.type === 'image-placeholder')
+      .map((block) => block?.type === 'table-placeholder' ? '[표 포함]' : '[그림 포함]')
+      .slice(0, 2);
+    const body = [...headingLines, ...paragraphLines, ...markerLines].filter(Boolean).join('\n');
+    const finalBody = String(body || doc.textForGeneration || '').replace(/\s+/g, ' ').trim();
+    return `[참고문서 ${index + 1}] ${doc.title}\n${finalBody.slice(0, 240) || '본문 없음'}`;
   }).join('\n\n');
 
   const mergedKeywords = Array.from(new Set(documents.flatMap((doc) => Array.isArray(doc.tags) ? doc.tags : []).filter(Boolean))).slice(0, 10);
@@ -509,34 +532,47 @@ function generateDraftFromDocuments({ documents, prompt }) {
   const isPlan = /계획/.test(cleanPrompt);
   const isEvaluation = /평가/.test(cleanPrompt);
 
+  const structureHints = documents.map((doc) => {
+    const headings = (doc.structuredBlocks || [])
+      .filter((block) => block?.type === 'heading')
+      .map((block) => String(block?.text || '').trim())
+      .filter(Boolean)
+      .slice(0, 4);
+    return headings.length ? `- ${doc.title}: ${headings.join(', ')}` : '';
+  }).filter(Boolean).join('\n');
+
   let mainSections = [
     '1. 문서 목적\n선택된 참고 문서들의 공통 주제와 핵심 내용을 반영하여 요청에 맞는 초안을 작성합니다. 기존 문서에서 반복적으로 등장한 표현과 주요 항목을 우선 반영합니다.',
     `2. 주요 반영 사항\n${sourceSummaries}`,
-    '3. 초안 본문\n본 문서는 요청 작업을 위해 작성한 초안입니다. 참고 문서에서 확인된 핵심 내용, 일정 관련 표현, 운영 방향, 안내 문구를 토대로 재구성하였습니다. 실제 사용 전 대상, 일정, 담당자, 세부 운영 방식은 현재 상황에 맞게 수정해 사용합니다.',
-    `4. 참고 키워드\n${keywordLine}`,
+    structureHints ? `3. 참고 문서 구조 힌트\n${structureHints}` : '3. 참고 문서 구조 힌트\n참고 문서의 주요 제목과 문단 흐름을 반영해 초안을 구성합니다.',
+    '4. 초안 본문\n본 문서는 요청 작업을 위해 작성한 초안입니다. 참고 문서에서 확인된 핵심 내용, 일정 관련 표현, 운영 방향, 안내 문구를 토대로 재구성하였습니다. 실제 사용 전 대상, 일정, 담당자, 세부 운영 방식은 현재 상황에 맞게 수정해 사용합니다.',
+    `5. 참고 키워드\n${keywordLine}`,
   ];
 
   if (isNotice) {
     mainSections = [
       '1. 안내 목적\n가정과 학생에게 전달해야 할 핵심 내용을 빠르게 이해할 수 있도록 정리합니다.',
       '2. 주요 안내사항\n대상, 일정, 준비물, 참여 방법, 유의사항을 빠짐없이 포함하도록 구성합니다.',
-      '3. 안내문 초안\n안녕하세요. 관련 내용을 안내드립니다. 아래 일정을 확인해 주시고 필요한 준비를 부탁드립니다. 세부 내용은 학교 일정과 운영 계획에 맞게 조정해 사용합니다.',
-      `4. 참고 요약\n${sourceSummaries}`,
+      structureHints ? `3. 참고 문서 구조 힌트\n${structureHints}` : '3. 참고 문서 구조 힌트\n기존 안내문에서 반복적으로 사용된 제목, 문단 흐름, 포함 항목을 반영합니다.',
+      '4. 안내문 초안\n안녕하세요. 관련 내용을 안내드립니다. 아래 일정을 확인해 주시고 필요한 준비를 부탁드립니다. 세부 내용은 학교 일정과 운영 계획에 맞게 조정해 사용합니다.',
+      `5. 참고 요약\n${sourceSummaries}`,
     ];
   } else if (isMeeting) {
     mainSections = [
       '1. 회의 목적\n이번 회의에서 다루어야 할 배경과 목적을 먼저 정리합니다.',
       '2. 주요 안건\n안건별로 현재 상황, 논의 필요 사항, 결정 포인트를 구분해 정리합니다.',
-      '3. 후속 조치\n회의 후 담당자, 일정, 점검 항목을 바로 연결할 수 있게 적습니다.',
-      `4. 참고 요약\n${sourceSummaries}`,
+      structureHints ? `3. 참고 문서 구조 힌트\n${structureHints}` : '3. 참고 문서 구조 힌트\n기존 회의자료의 안건 구조와 정리 방식을 반영합니다.',
+      '4. 후속 조치\n회의 후 담당자, 일정, 점검 항목을 바로 연결할 수 있게 적습니다.',
+      `5. 참고 요약\n${sourceSummaries}`,
     ];
   } else if (isPlan || isEvaluation || normalizedPrompt.includes('계획')) {
     mainSections = [
       '1. 추진 배경 및 목적\n문서의 작성 목적과 운영 배경을 간단히 정리합니다.',
       '2. 운영 방향\n전체 운영 원칙, 중점 사항, 고려해야 할 기준을 적습니다.',
-      '3. 세부 계획\n시기별 또는 항목별 세부 계획을 정리합니다. 필요한 경우 월별, 학기별, 단계별 구분을 넣어 사용합니다.',
-      '4. 기대 효과 및 준비사항\n실행 이후 기대 효과와 사전 준비사항을 정리합니다.',
-      `5. 참고 요약\n${sourceSummaries}`,
+      structureHints ? `3. 참고 문서 구조 힌트\n${structureHints}` : '3. 참고 문서 구조 힌트\n기존 계획서의 제목 체계와 문단 흐름을 반영합니다.',
+      '4. 세부 계획\n시기별 또는 항목별 세부 계획을 정리합니다. 필요한 경우 월별, 학기별, 단계별 구분을 넣어 사용합니다.',
+      '5. 기대 효과 및 준비사항\n실행 이후 기대 효과와 사전 준비사항을 정리합니다.',
+      `6. 참고 요약\n${sourceSummaries}`,
     ];
   }
 
