@@ -227,6 +227,19 @@ async function extractTextFromFile(fullPath, fileType) {
   throw new Error(`unsupported extractor: ${type}`);
 }
 
+function buildStructuredContent(text) {
+  const clean = String(text || '').replace(/\r\n/g, '\n').trim();
+  if (!clean) return { blocks: [] };
+
+  const blocks = clean
+    .split(/\n\s*\n+/)
+    .map((chunk) => chunk.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .map((chunk) => ({ type: 'paragraph', text: chunk }));
+
+  return { blocks };
+}
+
 function summarizeTextHeuristic(text) {
   const clean = String(text || '').replace(/\s+/g, ' ').trim();
   if (!clean) throw new Error('empty extractedText');
@@ -491,6 +504,7 @@ async function runDocumentPipelineTask({ taskId, docId, folderId, title, origina
     storedName: '',
     fullPath: '',
     extractedText: '',
+    structuredContent: { blocks: [] },
     extractMethod: '',
     summaryOneLine: '',
     keyPoints: [],
@@ -537,12 +551,17 @@ async function runDocumentPipelineTask({ taskId, docId, folderId, title, origina
       });
 
       await runStep('summarize', { extractedLength: context.extractedText.length }, async () => {
+        context.structuredContent = buildStructuredContent(context.extractedText);
         const result = summarizeTextHeuristic(context.extractedText);
         context.summaryOneLine = result.summaryOneLine || '';
         context.keyPoints = Array.isArray(result.keyPoints) ? result.keyPoints : [];
         context.category = result.category || '기타';
         context.tags = Array.isArray(result.tags) ? result.tags : [];
-        return { summaryOneLine: context.summaryOneLine, keyPointsCount: context.keyPoints.length };
+        return {
+          summaryOneLine: context.summaryOneLine,
+          keyPointsCount: context.keyPoints.length,
+          blocksCount: Array.isArray(context.structuredContent?.blocks) ? context.structuredContent.blocks.length : 0,
+        };
       });
 
       await runStep('generate-metadata', { category: context.category }, async () => ({
@@ -562,6 +581,7 @@ async function runDocumentPipelineTask({ taskId, docId, folderId, title, origina
           extractStatus: 'success',
           extractError: '',
           extractMethod: context.extractMethod,
+          structuredContent: context.structuredContent,
           summaryOneLine: context.summaryOneLine,
           keyPoints: context.keyPoints,
           category: context.category,
@@ -894,6 +914,7 @@ app.post('/api/folders/:id/documents', (req, res) => {
       extractStatus: 'pending',
       extractError: '',
       extractMethod: '',
+      structuredContent: { blocks: [] },
       summaryOneLine: '',
       keyPoints: [],
       category: '',
