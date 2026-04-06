@@ -763,6 +763,23 @@ app.get('/api/generated-documents/:id', (req, res) => {
   return res.json(doc);
 });
 
+app.patch('/api/generated-documents/:id', (req, res) => {
+  const docs = readGeneratedDocuments();
+  const idx = docs.findIndex((item) => item.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'generated document not found' });
+
+  const { title, prompt, contentText, contentHtml } = req.body || {};
+
+  if (typeof title === 'string') docs[idx].title = title.trim() || docs[idx].title;
+  if (typeof prompt === 'string') docs[idx].prompt = prompt.trim() || docs[idx].prompt;
+  if (typeof contentText === 'string') docs[idx].contentText = contentText;
+  if (typeof contentHtml === 'string') docs[idx].contentHtml = contentHtml;
+  docs[idx].updatedAt = new Date().toISOString();
+
+  writeGeneratedDocuments(docs);
+  return res.json(docs[idx]);
+});
+
 app.patch('/api/documents/:docId', (req, res) => {
   const docs = readDocuments();
   const idx = docs.findIndex((d) => d.id === req.params.docId);
