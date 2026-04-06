@@ -22,12 +22,14 @@ const FILES_DIR = path.join(__dirname, 'files');
 const LEGACY_UPLOAD_DIR = path.join(__dirname, 'uploads'); // migration-only fallback
 const FOLDERS_FILE = path.join(DATA_DIR, 'folders.json');
 const DOCUMENTS_FILE = path.join(DATA_DIR, 'documents.json');
+const GENERATED_DOCUMENTS_FILE = path.join(DATA_DIR, 'generated-documents.json');
 const ALLOWED_EXT = new Set(['hwp', 'pdf', 'xlsx', 'xls', 'txt']);
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(FILES_DIR, { recursive: true });
 if (!fs.existsSync(FOLDERS_FILE)) fs.writeFileSync(FOLDERS_FILE, '[]\n', 'utf8');
 if (!fs.existsSync(DOCUMENTS_FILE)) fs.writeFileSync(DOCUMENTS_FILE, '[]\n', 'utf8');
+if (!fs.existsSync(GENERATED_DOCUMENTS_FILE)) fs.writeFileSync(GENERATED_DOCUMENTS_FILE, '[]\n', 'utf8');
 
 function normalizeOriginalName(name) {
   if (!name || typeof name !== 'string') return 'file';
@@ -99,6 +101,8 @@ const readFolders = () => readJson(FOLDERS_FILE, []);
 const writeFolders = (folders) => writeJson(FOLDERS_FILE, folders);
 const readDocuments = () => readJson(DOCUMENTS_FILE, []);
 const writeDocuments = (docs) => writeJson(DOCUMENTS_FILE, docs);
+const readGeneratedDocuments = () => readJson(GENERATED_DOCUMENTS_FILE, []);
+const writeGeneratedDocuments = (docs) => writeJson(GENERATED_DOCUMENTS_FILE, docs);
 const findFolder = (id) => readFolders().find((f) => f.id === id);
 
 function ensureFilesLayout() {
@@ -391,6 +395,97 @@ async function runTaskWithRetry(taskId, runner, maxRetry = 2) {
   throw lastError || new Error('task failed');
 }
 
+function buildGenerationSourceDocuments(documentIds) {
+  const ids = Array.isArray(documentIds) ? documentIds.map((v) => String(v)) : [];
+  const docs = readDocuments();
+  const sourceDocs = ids.map((id) => docs.find((doc) => doc.id === id)).filter(Boolean);
+
+  const normalized = sourceDocs.map((doc) => {
+    const extractedText = String(doc?.extractedText || '').trim();
+    const summaryOneLine = String(doc?.summaryOneLine || '').trim();
+    const fallbackText = extractedText || summaryOneLine || String(doc?.title || '').trim();
+
+    return {
+      id: doc.id,
+      title: String(doc.title || '제목 없는 문서').trim() || '제목 없는 문서',
+      category: String(doc.category || '기타').trim() || '기타',
+      tags: Array.isArray(doc.tags) ? doc.tags : [],
+      extractedText,
+      summaryOneLine,
+      textForGeneration: fallbackText,
+    };
+  }).filter((doc) => doc.textForGeneration);
+
+  if (!normalized.length) {
+    throw new Error('유효한 문서를 찾을 수 없습니다. 추출 결과 또는 제목이 있는 문서를 선택해 주세요.');
+  }
+
+  return normalized;
+}
+
+function buildGenerationPromptTitle(prompt) {
+  const clean = String(prompt || '').replace(/\s+/g, ' ').trim();
+  if (!clean) return '생성 문서 초안';
+  return `${clean.slice(0, 80)} 초안`;
+}
+
+function generateDraftFromDocuments({ documents, prompt }) {
+  const cleanPrompt = String(prompt || '').replace(/\s+/g, ' ').trim();
+  const title = buildGenerationPromptTitle(cleanPrompt);
+  const sourceTitles = documents.map((doc) => `- ${doc.title}`).join('\n');
+  const sourceSummaries = documents.map((doc, index) => {
+    const body = String(doc.summaryOneLine || doc.textForGeneration || '').replace(/\s+/g, ' ').trim();
+    return `${index + 1}. ${doc.title}: ${body.slice(0, 160) || '요약 정보 없음'}`;
+  }).join('\n');
+
+  const snippets = documents.map((doc, index) => {
+    const body = String(doc.textForGeneration || '').replace(/\s+/g, ' ').trim();
+    return `[참고문서 ${index + 1}] ${doc.title}\n${body.slice(0, 240) || '본문 없음'}`;
+  }).join('\n\n');
+
+  const mergedKeywords = Array.from(new Set(documents.flatMap((doc) => Array.isArray(doc.tags) ? doc.tags : []).filter(Boolean))).slice(0, 10);
+  const keywordLine = mergedKeywords.length ? mergedKeywords.join(', ') : '핵심 키워드 없음';
+
+  let contentText = [
+    `[요청]`,
+    cleanPrompt,
+    '',
+    `[참고 문서]`,
+    sourceTitles,
+    '',
+    `[초안]`,
+    `${cleanPrompt} 요청을 바탕으로 기존 문서 내용을 참고해 초안을 정리합니다. 아래 초안은 업로드된 문서의 핵심 내용과 표현을 참고해 바로 수정 가능한 형태로 구성했습니다.`,
+    '',
+    `1. 문서 목적`,
+    `선택된 참고 문서들의 공통 주제와 핵심 내용을 반영하여 ${cleanPrompt}에 맞는 실무 초안을 작성합니다. 기존 문서에서 반복적으로 등장한 표현과 주요 항목을 우선 반영합니다.`,
+    '',
+    `2. 주요 반영 사항`,
+    sourceSummaries,
+    '',
+    `3. 초안 본문`,
+    `본 문서는 ${cleanPrompt} 작업을 위해 작성한 초안입니다. 참고 문서에서 확인된 핵심 내용, 일정 관련 표현, 운영 방향, 안내 문구를 토대로 재구성하였습니다. 실제 사용 전 대상, 일정, 담당자, 세부 운영 방식은 현재 상황에 맞게 수정해 사용합니다.`,
+    '',
+    `4. 참고 키워드`,
+    keywordLine,
+    '',
+    `[참고 내용 정리]`,
+    snippets,
+  ].join('\n');
+
+  if (contentText.length < 500) {
+    contentText += `\n\n[보강 문단]\n이 초안은 1차 생성 결과이며, 문서 형식과 세부 항목은 실제 업무 목적에 따라 추가 수정이 필요합니다. 특히 연도, 학년, 일정, 대상, 운영 시간, 제출 방식, 평가 기준 등은 최신 기준으로 다시 확인해 반영하는 것을 권장합니다. 참고 문서들 사이에 공통적으로 나타나는 표현은 유지하되, 불필요하게 반복되는 문장은 정리하여 최종 문서의 가독성을 높이는 방식으로 다듬어 사용합니다.`;
+  }
+
+  const paragraphs = contentText.split('\n\n').map((chunk) => `<p>${chunk.replace(/\n/g, '<br />')}</p>`).join('\n');
+  const contentHtml = `<h1>${title}</h1>\n${paragraphs}`;
+
+  return {
+    title,
+    contentText,
+    contentHtml,
+  };
+}
+
 async function runDocumentPipelineTask({ taskId, docId, folderId, title, originalName, ext, fileBuffer, maxRetry = 2 }) {
   const context = {
     storedName: '',
@@ -614,6 +709,58 @@ app.get('/api/tasks/:taskId', (req, res) => {
   const task = getTask(req.params.taskId);
   if (!task) return res.status(404).json({ error: 'task not found' });
   return res.json(task);
+});
+
+app.post('/api/generations', (req, res) => {
+  const documentIds = Array.isArray(req.body?.documentIds) ? req.body.documentIds.map((v) => String(v)) : [];
+  const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
+
+  if (!documentIds.length) return res.status(400).json({ error: 'documentIds is required' });
+  if (!prompt) return res.status(400).json({ error: 'prompt is required' });
+
+  let sourceDocs;
+  try {
+    sourceDocs = buildGenerationSourceDocuments(documentIds);
+  } catch (e) {
+    return res.status(400).json({ error: e?.message || '유효한 문서를 찾을 수 없습니다.' });
+  }
+
+  const draft = generateDraftFromDocuments({ documents: sourceDocs, prompt });
+  const now = new Date().toISOString();
+  const generatedDoc = {
+    id: crypto.randomUUID(),
+    title: draft.title,
+    prompt,
+    sourceDocumentIds: sourceDocs.map((doc) => doc.id),
+    sourceDocumentsPreview: sourceDocs.map((doc) => ({
+      id: doc.id,
+      title: doc.title,
+      category: doc.category,
+    })),
+    contentText: draft.contentText,
+    contentHtml: draft.contentHtml || '',
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const generatedDocs = readGeneratedDocuments();
+  generatedDocs.push(generatedDoc);
+  writeGeneratedDocuments(generatedDocs);
+
+  return res.status(201).json(generatedDoc);
+});
+
+app.get('/api/generated-documents', (req, res) => {
+  const docs = readGeneratedDocuments()
+    .slice()
+    .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+  return res.json(docs);
+});
+
+app.get('/api/generated-documents/:id', (req, res) => {
+  const doc = readGeneratedDocuments().find((item) => item.id === req.params.id);
+  if (!doc) return res.status(404).json({ error: 'generated document not found' });
+  return res.json(doc);
 });
 
 app.patch('/api/documents/:docId', (req, res) => {
