@@ -10,8 +10,10 @@
   "dependencies": {
     "express": "^4.19.2",
     "hwp.js": "^0.0.3",
+    "kordoc": "^2.2.3",
     "multer": "^1.4.5-lts.1",
     "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^5.6.205",
     "xlsx": "^0.18.5"
   }
 }

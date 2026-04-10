@@ -148,6 +148,70 @@ function commandExists(cmd) {
 
 ensureFilesLayout();
 
+let kordocParsePromise = null;
+
+async function getKordocParse() {
+  if (!kordocParsePromise) {
+    kordocParsePromise = import('kordoc').then((mod) => mod.parse);
+  }
+  return kordocParsePromise;
+}
+
+function mapKordocBlocks(blocks) {
+  if (!Array.isArray(blocks)) return { blocks: [] };
+
+  const normalized = blocks.map((block) => {
+    if (!block || typeof block !== 'object') return null;
+
+    if (block.type === 'heading') {
+      return {
+        type: 'heading',
+        level: Number(block.level) || 2,
+        text: String(block.text || '').trim(),
+      };
+    }
+
+    if (block.type === 'table') {
+      const rows = Array.isArray(block.rows)
+        ? block.rows.map((row) => Array.isArray(row) ? row.map((cell) => String(cell?.text ?? cell ?? '').trim()) : [String(row ?? '').trim()]).filter((row) => row.length > 0)
+        : [];
+      return { type: 'table', rows };
+    }
+
+    if (block.type === 'image') {
+      return {
+        type: 'image',
+        src: String(block.src || block.path || ''),
+        alt: String(block.alt || ''),
+        caption: String(block.caption || ''),
+      };
+    }
+
+    const text = String(block.text || block.content || '').trim();
+    if (!text) return null;
+    return { type: 'paragraph', text };
+  }).filter(Boolean);
+
+  return { blocks: normalized };
+}
+
+async function extractHwpViaKordoc(fullPath) {
+  const parse = await getKordocParse();
+  const buffer = fs.readFileSync(fullPath);
+  const result = await parse(buffer);
+  if (!result?.success) throw new Error(result?.error || 'kordoc parse failed');
+
+  const markdown = String(result.markdown || '').trim();
+  const structuredContent = mapKordocBlocks(result.blocks);
+  if (!markdown && !structuredContent.blocks.length) throw new Error('kordoc returned empty output');
+
+  return {
+    text: markdown,
+    method: 'kordoc',
+    structuredContent,
+  };
+}
+
 function extractHwpViaHwp5txt(fullPath) {
   const localHwp5txt = path.join(process.env.HOME || '/home/ubuntu', '.local', 'bin', 'hwp5txt');
   const bin = commandExists('hwp5txt') ? 'hwp5txt' : (fs.existsSync(localHwp5txt) ? localHwp5txt : null);
@@ -228,6 +292,14 @@ function postProcessHwpText(text) {
 
 async function extractHwpText(fullPath) {
   const errors = [];
+  try {
+    const result = await extractHwpViaKordoc(fullPath);
+    return {
+      ...result,
+      text: postProcessHwpText(result.text),
+      structuredContent: result.structuredContent,
+    };
+  } catch (e) { errors.push(`kordoc: ${e.message}`); }
   try {
     const result = { text: extractHwpViaHwp5txt(fullPath), method: 'hwp5txt' };
     return { ...result, text: postProcessHwpText(result.text) };
@@ -816,13 +888,18 @@ async function runDocumentPipelineTask({ taskId, docId, folderId, title, origina
         const result = await extractTextFromFile(context.fullPath, ext);
         context.extractedText = result.text || '';
         context.extractMethod = result.method || '';
+        if (result.structuredContent && Array.isArray(result.structuredContent.blocks)) {
+          context.structuredContent = result.structuredContent;
+        }
         return { method: context.extractMethod, extractedLength: context.extractedText.length };
       });
 
       await runStep('summarize', { extractedLength: context.extractedText.length }, async () => {
-        context.structuredContent = buildStructuredContent(context.extractedText);
+        if (!Array.isArray(context.structuredContent?.blocks) || context.structuredContent.blocks.length === 0) {
+          context.structuredContent = buildStructuredContent(context.extractedText);
+        }
 
-        if (ext === 'hwp') {
+        if (ext === 'hwp' && (!Array.isArray(context.structuredContent?.blocks) || context.structuredContent.blocks.length === 0)) {
           try {
             const htmlResult = extractHwpHtml(context.fullPath);
             const htmlStructured = buildStructuredContentFromHtml(htmlResult.html);
