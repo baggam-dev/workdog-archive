@@ -251,18 +251,35 @@ function buildStructuredContent(text) {
   const clean = String(text || '').replace(/\r\n/g, '\n').trim();
   if (!clean) return { blocks: [] };
 
-  const blocks = clean
+  const chunks = clean
     .split(/\n\s*\n+/)
-    .map((chunk) => chunk.replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-    .map((chunk) => {
-      if (chunk === '[TABLE]') return { type: 'table-placeholder', text: '표 영역' };
-      if (chunk === '[IMAGE]') return { type: 'image-placeholder', text: '그림 영역' };
-      if (/^(□|■|▪|▶|[0-9]+\.|[가-힣A-Za-z0-9 ]{2,40})$/.test(chunk) && chunk.length <= 50) {
-        return { type: 'heading', text: chunk };
-      }
-      return { type: 'paragraph', text: chunk };
-    });
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+
+  const blocks = chunks.map((chunk) => {
+    const normalized = chunk.replace(/[ \t]+/g, ' ').trim();
+
+    if (normalized === '[IMAGE]') {
+      return { type: 'image', alt: '그림', caption: '그림 영역' };
+    }
+
+    if (normalized === '[TABLE]') {
+      return { type: 'table', rows: [['표 영역']] };
+    }
+
+    const lines = chunk.split('\n').map((line) => line.trim()).filter(Boolean);
+    const csvLike = lines.length >= 2 && lines.every((line) => /,|\t|\|/.test(line));
+    if (csvLike) {
+      const rows = lines.map((line) => line.split(/\t|,|\|/).map((cell) => cell.trim()).filter(Boolean)).filter((row) => row.length > 0);
+      if (rows.length) return { type: 'table', rows };
+    }
+
+    if (/^(□|■|▪|▶|[0-9]+\.|[가-힣A-Za-z0-9 ]{2,40})$/.test(normalized) && normalized.length <= 50) {
+      return { type: 'heading', level: 2, text: normalized };
+    }
+
+    return { type: 'paragraph', text: normalized.replace(/\s+/g, ' ') };
+  });
 
   return { blocks };
 }
