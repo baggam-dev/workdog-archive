@@ -251,10 +251,24 @@ function buildStructuredContent(text) {
   const clean = String(text || '').replace(/\r\n/g, '\n').trim();
   if (!clean) return { blocks: [] };
 
-  const chunks = clean
+  const rawChunks = clean
     .split(/\n\s*\n+/)
     .map((chunk) => chunk.trim())
     .filter(Boolean);
+
+  const chunks = [];
+  for (let i = 0; i < rawChunks.length; i += 1) {
+    const current = rawChunks[i];
+    if (current === '[TABLE]') {
+      const next = rawChunks[i + 1] || '';
+      if (next && next !== '[IMAGE]' && next !== '[TABLE]') {
+        chunks.push(`[TABLE]\n${next}`);
+        i += 1;
+        continue;
+      }
+    }
+    chunks.push(current);
+  }
 
   const blocks = chunks.map((chunk) => {
     const normalized = chunk.replace(/[ \t]+/g, ' ').trim();
@@ -267,9 +281,19 @@ function buildStructuredContent(text) {
       return { type: 'table', rows: [['표 영역']] };
     }
 
+    if (normalized.startsWith('[TABLE]')) {
+      const payload = normalized.replace(/^\[TABLE\]\s*/, '').trim();
+      const lines = payload.split('\n').map((line) => line.trim()).filter(Boolean);
+      const rows = lines.map((line) => {
+        if (/\t|,|\|/.test(line)) return line.split(/\t|,|\|/).map((cell) => cell.trim()).filter(Boolean);
+        return [line];
+      }).filter((row) => row.length > 0);
+      return { type: 'table', rows: rows.length ? rows : [['표 영역']] };
+    }
+
     const lines = chunk.split('\n').map((line) => line.trim()).filter(Boolean);
-    const csvLike = lines.length >= 2 && lines.every((line) => /,|\t|\|/.test(line));
-    if (csvLike) {
+    const tableCandidate = lines.length >= 2 && lines.filter((line) => /,|\t|\|/.test(line)).length >= 2;
+    if (tableCandidate) {
       const rows = lines.map((line) => line.split(/\t|,|\|/).map((cell) => cell.trim()).filter(Boolean)).filter((row) => row.length > 0);
       if (rows.length) return { type: 'table', rows };
     }
