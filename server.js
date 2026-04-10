@@ -268,6 +268,93 @@ async function extractTextFromFile(fullPath, fileType) {
   throw new Error(`unsupported extractor: ${type}`);
 }
 
+function decodeHtmlEntities(text) {
+  return String(text || '')
+    .replace(/&#13;/g, '\n')
+    .replace(/&#10;/g, '\n')
+    .replace(/&#9;/g, '\t')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function stripHtmlTags(html) {
+  return decodeHtmlEntities(String(html || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ' '))
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function extractHtmlTagBlocks(html, tagName) {
+  const regex = new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'gi');
+  const blocks = [];
+  let match;
+  while ((match = regex.exec(String(html || '')))) {
+    blocks.push(match[1]);
+  }
+  return blocks;
+}
+
+function buildStructuredContentFromHtml(html) {
+  const source = String(html || '').trim();
+  if (!source) return { blocks: [] };
+
+  const bodyMatch = source.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+  const body = bodyMatch ? bodyMatch[1] : source;
+  const tokenRegex = /<(h[1-3]|p|table)\b[^>]*>[\s\S]*?<\/\1>/gi;
+  const blocks = [];
+  let match;
+
+  while ((match = tokenRegex.exec(body))) {
+    const token = match[0];
+    const tag = String(match[1] || '').toLowerCase();
+
+    if (tag === 'table') {
+      const rowHtmls = extractHtmlTagBlocks(token, 'tr');
+      const rows = rowHtmls.map((rowHtml) => {
+        const cells = [];
+        const cellRegex = /<(td|th)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+        let cellMatch;
+        while ((cellMatch = cellRegex.exec(rowHtml))) {
+          const text = stripHtmlTags(cellMatch[2]);
+          cells.push(text || ' ');
+        }
+        return cells;
+      }).filter((row) => row.length > 0);
+
+      if (rows.length) blocks.push({ type: 'table', rows });
+      continue;
+    }
+
+    if (tag === 'p') {
+      const images = [];
+      const imgRegex = /<img\b[^>]*src=["']([^"']+)["'][^>]*>/gi;
+      let imgMatch;
+      while ((imgMatch = imgRegex.exec(token))) {
+        images.push(imgMatch[1]);
+      }
+      for (const src of images) {
+        blocks.push({ type: 'image', src, alt: '', caption: '' });
+      }
+
+      const text = stripHtmlTags(token);
+      if (text) blocks.push({ type: 'paragraph', text });
+      continue;
+    }
+
+    const text = stripHtmlTags(token);
+    if (text) {
+      const level = Number(tag.replace('h', '')) || 2;
+      blocks.push({ type: 'heading', level, text });
+    }
+  }
+
+  return { blocks };
+}
+
 function buildStructuredContent(text) {
   const clean = String(text || '').replace(/\r\n/g, '\n').trim();
   if (!clean) return { blocks: [] };
