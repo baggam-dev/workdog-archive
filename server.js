@@ -443,13 +443,14 @@ function buildGenerationSourceDocuments(documentIds) {
   const normalized = sourceDocs.map((doc) => {
     const extractedText = String(doc?.extractedText || '').trim();
     const summaryOneLine = String(doc?.summaryOneLine || '').trim();
+    const summary = String(doc?.summary || '').trim();
     const structuredBlocks = Array.isArray(doc?.structuredContent?.blocks) ? doc.structuredContent.blocks : [];
     const structuredSnippet = structuredBlocks
       .map((block) => String(block?.text || '').trim())
       .filter(Boolean)
       .slice(0, 5)
       .join('\n');
-    const fallbackText = extractedText || structuredSnippet || summaryOneLine || String(doc?.title || '').trim();
+    const fallbackText = extractedText || summaryOneLine || summary || structuredSnippet || String(doc?.title || '').trim();
 
     return {
       id: doc.id,
@@ -458,6 +459,7 @@ function buildGenerationSourceDocuments(documentIds) {
       tags: Array.isArray(doc.tags) ? doc.tags : [],
       extractedText,
       summaryOneLine,
+      summary,
       structuredBlocks,
       textForGeneration: fallbackText,
     };
@@ -481,120 +483,107 @@ function generateDraftFromDocuments({ documents, prompt }) {
   const title = buildGenerationPromptTitle(cleanPrompt);
   const sourceTitles = documents.map((doc) => `- ${doc.title}`).join('\n');
 
-  const sourceSummaries = documents.map((doc, index) => {
-    const headingSummary = (doc.structuredBlocks || [])
-      .filter((block) => block?.type === 'heading')
-      .map((block) => String(block?.text || '').replace(/\s+/g, ' ').trim())
-      .filter(Boolean)
-      .slice(0, 2)
-      .join(' / ');
-    const paragraphSummary = (doc.structuredBlocks || [])
-      .filter((block) => block?.type === 'paragraph')
-      .map((block) => String(block?.text || '').replace(/\s+/g, ' ').trim())
-      .filter(Boolean)
-      .slice(0, 2)
-      .join(' / ');
-    const markerSummary = (doc.structuredBlocks || [])
-      .filter((block) => block?.type === 'table-placeholder' || block?.type === 'image-placeholder')
-      .map((block) => block?.type === 'table-placeholder' ? '표 포함' : '그림 포함')
-      .join(', ');
-    const body = String(headingSummary || paragraphSummary || doc.summaryOneLine || doc.textForGeneration || '').replace(/\s+/g, ' ').trim();
-    const suffix = markerSummary ? ` (${markerSummary})` : '';
-    return `${index + 1}. ${doc.title}: ${body.slice(0, 160) || '요약 정보 없음'}${suffix}`;
-  }).join('\n');
+  const uniqueLines = (lines, max = 6) => {
+    const seen = new Set();
+    const out = [];
+    for (const raw of lines) {
+      const line = String(raw || '').replace(/\s+/g, ' ').trim();
+      if (!line) continue;
+      const key = line.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(line);
+      if (out.length >= max) break;
+    }
+    return out;
+  };
 
-  const snippets = documents.map((doc, index) => {
+  const docCoreLines = documents.map((doc) => {
     const headingLines = (doc.structuredBlocks || [])
       .filter((block) => block?.type === 'heading')
-      .map((block) => String(block?.text || '').replace(/\s+/g, ' ').trim())
-      .filter(Boolean)
-      .slice(0, 3);
+      .map((block) => block?.text);
     const paragraphLines = (doc.structuredBlocks || [])
       .filter((block) => block?.type === 'paragraph')
-      .map((block) => String(block?.text || '').replace(/\s+/g, ' ').trim())
-      .filter(Boolean)
-      .slice(0, 2);
+      .map((block) => block?.text);
     const markerLines = (doc.structuredBlocks || [])
       .filter((block) => block?.type === 'table-placeholder' || block?.type === 'image-placeholder')
-      .map((block) => block?.type === 'table-placeholder' ? '[표 포함]' : '[그림 포함]')
-      .slice(0, 2);
-    const body = [...headingLines, ...paragraphLines, ...markerLines].filter(Boolean).join('\n');
-    const finalBody = String(body || doc.textForGeneration || '').replace(/\s+/g, ' ').trim();
-    return `[참고문서 ${index + 1}] ${doc.title}\n${finalBody.slice(0, 240) || '본문 없음'}`;
+      .map((block) => block?.type === 'table-placeholder' ? '표 자료가 포함됩니다.' : '그림 자료가 포함됩니다.');
+
+    const lines = uniqueLines([
+      ...headingLines,
+      ...paragraphLines,
+      ...markerLines,
+      doc.extractedText,
+      doc.summaryOneLine,
+      doc.summary,
+      doc.title,
+    ], 6);
+
+    return {
+      title: doc.title,
+      lines,
+    };
+  });
+
+  const targetLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /대상|학년|학생|학부모|교직원|교사/.test(line))), 3);
+  const operationLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /운영|활동|방법|절차|안내|추진/.test(line))), 4);
+  const planLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /일정|계획|월|학기|주간|단계/.test(line))), 4);
+  const effectLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /기대|효과|개선|도움|지원/.test(line))), 3);
+
+  const sourceSummaryLines = docCoreLines.map((doc, index) => {
+    const joined = uniqueLines(doc.lines, 3).join(' / ');
+    return `${index + 1}. ${doc.title}: ${joined || '참고 내용이 있습니다.'}`;
+  });
+
+  const referenceSummary = docCoreLines.map((doc, index) => {
+    return `[참고문서 ${index + 1}] ${doc.title}\n${uniqueLines(doc.lines, 4).join('\n') || '참고 내용이 있습니다.'}`;
   }).join('\n\n');
 
-  const mergedKeywords = Array.from(new Set(documents.flatMap((doc) => Array.isArray(doc.tags) ? doc.tags : []).filter(Boolean))).slice(0, 10);
-  const keywordLine = mergedKeywords.length ? mergedKeywords.join(', ') : '핵심 키워드 없음';
-
-  const normalizedPrompt = cleanPrompt.toLowerCase();
-  const isNotice = /가정통신문|안내문|안내/.test(cleanPrompt);
-  const isMeeting = /회의/.test(cleanPrompt);
-  const isPlan = /계획/.test(cleanPrompt);
-  const isEvaluation = /평가/.test(cleanPrompt);
-
-  const structureHints = documents.map((doc) => {
-    const headings = (doc.structuredBlocks || [])
-      .filter((block) => block?.type === 'heading')
-      .map((block) => String(block?.text || '').trim())
-      .filter(Boolean)
-      .slice(0, 4);
-    return headings.length ? `- ${doc.title}: ${headings.join(', ')}` : '';
-  }).filter(Boolean).join('\n');
-
-  let mainSections = [
-    '1. 문서 목적\n선택된 참고 문서들의 공통 주제와 핵심 내용을 반영하여 요청에 맞는 초안을 작성합니다. 기존 문서에서 반복적으로 등장한 표현과 주요 항목을 우선 반영합니다.',
-    `2. 주요 반영 사항\n${sourceSummaries}`,
-    structureHints ? `3. 참고 문서 구조 힌트\n${structureHints}` : '3. 참고 문서 구조 힌트\n참고 문서의 주요 제목과 문단 흐름을 반영해 초안을 구성합니다.',
-    '4. 초안 본문\n본 문서는 요청 작업을 위해 작성한 초안입니다. 참고 문서에서 확인된 핵심 내용, 일정 관련 표현, 운영 방향, 안내 문구를 토대로 재구성하였습니다. 실제 사용 전 대상, 일정, 담당자, 세부 운영 방식은 현재 상황에 맞게 수정해 사용합니다.',
-    `5. 참고 키워드\n${keywordLine}`,
-  ];
-
-  if (isNotice) {
-    mainSections = [
-      '1. 안내 목적\n가정과 학생에게 전달해야 할 핵심 내용을 빠르게 이해할 수 있도록 정리합니다.',
-      '2. 주요 안내사항\n대상, 일정, 준비물, 참여 방법, 유의사항을 빠짐없이 포함하도록 구성합니다.',
-      structureHints ? `3. 참고 문서 구조 힌트\n${structureHints}` : '3. 참고 문서 구조 힌트\n기존 안내문에서 반복적으로 사용된 제목, 문단 흐름, 포함 항목을 반영합니다.',
-      '4. 안내문 초안\n안녕하세요. 관련 내용을 안내드립니다. 아래 일정을 확인해 주시고 필요한 준비를 부탁드립니다. 세부 내용은 학교 일정과 운영 계획에 맞게 조정해 사용합니다.',
-      `5. 참고 요약\n${sourceSummaries}`,
-    ];
-  } else if (isMeeting) {
-    mainSections = [
-      '1. 회의 목적\n이번 회의에서 다루어야 할 배경과 목적을 먼저 정리합니다.',
-      '2. 주요 안건\n안건별로 현재 상황, 논의 필요 사항, 결정 포인트를 구분해 정리합니다.',
-      structureHints ? `3. 참고 문서 구조 힌트\n${structureHints}` : '3. 참고 문서 구조 힌트\n기존 회의자료의 안건 구조와 정리 방식을 반영합니다.',
-      '4. 후속 조치\n회의 후 담당자, 일정, 점검 항목을 바로 연결할 수 있게 적습니다.',
-      `5. 참고 요약\n${sourceSummaries}`,
-    ];
-  } else if (isPlan || isEvaluation || normalizedPrompt.includes('계획')) {
-    mainSections = [
-      '1. 추진 배경 및 목적\n문서의 작성 목적과 운영 배경을 간단히 정리합니다.',
-      '2. 운영 방향\n전체 운영 원칙, 중점 사항, 고려해야 할 기준을 적습니다.',
-      structureHints ? `3. 참고 문서 구조 힌트\n${structureHints}` : '3. 참고 문서 구조 힌트\n기존 계획서의 제목 체계와 문단 흐름을 반영합니다.',
-      '4. 세부 계획\n시기별 또는 항목별 세부 계획을 정리합니다. 필요한 경우 월별, 학기별, 단계별 구분을 넣어 사용합니다.',
-      '5. 기대 효과 및 준비사항\n실행 이후 기대 효과와 사전 준비사항을 정리합니다.',
-      `6. 참고 요약\n${sourceSummaries}`,
-    ];
-  }
+  const purposeText = `선택한 참고 문서를 바탕으로 ${cleanPrompt}에 맞는 초안 문서를 작성합니다. 기존 문서의 핵심 표현과 구조를 참고하되 현재 요청에 맞게 바로 수정 가능한 형태로 정리합니다.`;
+  const targetText = targetLines.length
+    ? `${targetLines.join(' ')} 이를 바탕으로 실제 적용 대상이 분명하게 드러나도록 작성합니다.`
+    : '학생, 학부모, 교직원 등 실제 적용 대상을 분명하게 적고 필요한 경우 학년 또는 운영 대상을 구체적으로 구분해 작성합니다.';
+  const operationText = operationLines.length
+    ? `${operationLines.join(' ')} 실제 운영 시 필요한 절차와 안내 사항이 빠지지 않도록 정리합니다.`
+    : '핵심 운영 내용, 추진 방법, 안내 사항을 중심으로 실무에서 바로 사용할 수 있게 정리합니다.';
+  const planText = planLines.length
+    ? `${planLines.join(' ')} 일정, 단계, 준비 흐름이 보이도록 세부 계획을 작성합니다.`
+    : '시기별 일정, 준비 단계, 실행 순서를 구분하여 세부 계획을 작성합니다.';
+  const effectText = effectLines.length
+    ? `${effectLines.join(' ')} 실행 이후 기대되는 변화와 효과가 드러나도록 정리합니다.`
+    : '운영 이후 기대 효과와 실무적 활용 가치를 간단명료하게 정리합니다.';
 
   let contentText = [
-    `[요청]`,
+    '[요청]',
     cleanPrompt,
     '',
-    `[문서 제목]`,
-    title,
-    '',
-    `[참고 문서]`,
+    '[참고 문서]',
     sourceTitles,
     '',
-    `[초안 본문]`,
-    ...mainSections,
+    '[초안]',
+    '1. 목적',
+    purposeText,
     '',
-    `[참고 내용 정리]`,
-    snippets,
-  ].join('\n\n');
+    '2. 대상',
+    targetText,
+    '',
+    '3. 운영 내용',
+    operationText,
+    '',
+    '4. 세부 계획',
+    planText,
+    '',
+    '5. 기대 효과',
+    effectText,
+    '',
+    '[참고 요약]',
+    sourceSummaryLines.join('\n'),
+    '',
+    referenceSummary,
+  ].join('\n');
 
-  if (contentText.length < 650) {
-    contentText += `\n\n[보강 문단]\n이 초안은 바로 검토와 수정이 가능한 업무용 초안입니다. 참고 문서에서 반복적으로 등장한 표현을 최대한 유지하면서도 현재 요청에 맞게 재구성했습니다. 실제 적용 시 연도, 학년, 일정, 대상, 담당자, 제출 방식, 운영 세부 기준은 최신 상황에 맞춰 다시 확인해 반영하는 것을 권장합니다.`;
+  if (contentText.length < 500) {
+    contentText += '\n\n추가 안내: 이 초안은 참고 문서의 공통 요소를 바탕으로 정리한 1차 결과입니다. 실제 사용 전에는 연도, 대상, 일정, 담당자, 세부 운영 방식, 준비 사항을 현재 상황에 맞게 다시 확인하고 보정하는 것을 권장합니다. 문서의 목적과 대상이 한눈에 드러나도록 문장을 다듬고, 중복 표현은 줄여 최종본의 가독성을 높이는 방식으로 활용합니다.';
   }
 
   const htmlSections = contentText.split('\n\n').map((chunk) => {
@@ -867,6 +856,7 @@ app.post('/api/generations', (req, res) => {
     id: crypto.randomUUID(),
     title: draft.title,
     prompt,
+    status: 'draft',
     sourceDocumentIds: sourceDocs.map((doc) => doc.id),
     sourceDocumentsPreview: sourceDocs.map((doc) => ({
       id: doc.id,
@@ -889,7 +879,19 @@ app.post('/api/generations', (req, res) => {
 app.get('/api/generated-documents', (req, res) => {
   const docs = readGeneratedDocuments()
     .slice()
-    .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+    .map((doc) => ({
+      id: doc.id,
+      title: doc.title,
+      status: doc.status || 'draft',
+      createdAt: doc.createdAt,
+      sourceDocumentIds: Array.isArray(doc.sourceDocumentIds) ? doc.sourceDocumentIds : [],
+      contentText: doc.contentText,
+      updatedAt: doc.updatedAt,
+      prompt: doc.prompt,
+      sourceDocumentsPreview: doc.sourceDocumentsPreview,
+      regeneratedFromId: doc.regeneratedFromId,
+    }));
   return res.json(docs);
 });
 
@@ -908,8 +910,16 @@ app.patch('/api/generated-documents/:id', (req, res) => {
 
   if (typeof title === 'string') docs[idx].title = title.trim() || docs[idx].title;
   if (typeof prompt === 'string') docs[idx].prompt = prompt.trim() || docs[idx].prompt;
-  if (typeof contentText === 'string') docs[idx].contentText = contentText;
-  if (typeof contentHtml === 'string') docs[idx].contentHtml = contentHtml;
+  let contentUpdated = false;
+  if (typeof contentText === 'string') {
+    docs[idx].contentText = contentText;
+    contentUpdated = true;
+  }
+  if (typeof contentHtml === 'string') {
+    docs[idx].contentHtml = contentHtml;
+    contentUpdated = true;
+  }
+  if (contentUpdated) docs[idx].status = 'edited';
   docs[idx].updatedAt = new Date().toISOString();
 
   writeGeneratedDocuments(docs);
@@ -938,6 +948,7 @@ app.post('/api/generated-documents/:id/regenerate', (req, res) => {
     id: crypto.randomUUID(),
     title: draft.title,
     prompt,
+    status: 'draft',
     sourceDocumentIds: sourceDocs.map((doc) => doc.id),
     sourceDocumentsPreview: sourceDocs.map((doc) => ({
       id: doc.id,
