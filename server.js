@@ -298,6 +298,22 @@ function extractHtmlTagBlocks(html, tagName) {
   return blocks;
 }
 
+function buildTableBlockFromHtml(tableHtml) {
+  const rowHtmls = extractHtmlTagBlocks(tableHtml, 'tr');
+  const rows = rowHtmls.map((rowHtml) => {
+    const cells = [];
+    const cellRegex = /<(td|th)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+    let cellMatch;
+    while ((cellMatch = cellRegex.exec(rowHtml))) {
+      const text = stripHtmlTags(cellMatch[2]);
+      cells.push(text || ' ');
+    }
+    return cells;
+  }).filter((row) => row.length > 0);
+
+  return rows.length ? { type: 'table', rows } : null;
+}
+
 function buildStructuredContentFromHtml(html) {
   const source = String(html || '').trim();
   if (!source) return { blocks: [] };
@@ -313,34 +329,32 @@ function buildStructuredContentFromHtml(html) {
     const tag = String(match[1] || '').toLowerCase();
 
     if (tag === 'table') {
-      const rowHtmls = extractHtmlTagBlocks(token, 'tr');
-      const rows = rowHtmls.map((rowHtml) => {
-        const cells = [];
-        const cellRegex = /<(td|th)\b[^>]*>([\s\S]*?)<\/\1>/gi;
-        let cellMatch;
-        while ((cellMatch = cellRegex.exec(rowHtml))) {
-          const text = stripHtmlTags(cellMatch[2]);
-          cells.push(text || ' ');
-        }
-        return cells;
-      }).filter((row) => row.length > 0);
-
-      if (rows.length) blocks.push({ type: 'table', rows });
+      const tableBlock = buildTableBlockFromHtml(token);
+      if (tableBlock) blocks.push(tableBlock);
       continue;
     }
 
     if (tag === 'p') {
+      const tableRegex = /<table\b[^>]*>[\s\S]*?<\/table>/gi;
+      let tableMatch;
+      let tokenWithoutTables = token;
+      while ((tableMatch = tableRegex.exec(token))) {
+        const tableBlock = buildTableBlockFromHtml(tableMatch[0]);
+        if (tableBlock) blocks.push(tableBlock);
+        tokenWithoutTables = tokenWithoutTables.replace(tableMatch[0], ' ');
+      }
+
       const images = [];
       const imgRegex = /<img\b[^>]*src=["']([^"']+)["'][^>]*>/gi;
       let imgMatch;
-      while ((imgMatch = imgRegex.exec(token))) {
+      while ((imgMatch = imgRegex.exec(tokenWithoutTables))) {
         images.push(imgMatch[1]);
       }
       for (const src of images) {
         blocks.push({ type: 'image', src, alt: '', caption: '' });
       }
 
-      const text = stripHtmlTags(token);
+      const text = stripHtmlTags(tokenWithoutTables.replace(/<img\b[^>]*>/gi, ' '));
       if (text) blocks.push({ type: 'paragraph', text });
       continue;
     }
