@@ -642,6 +642,7 @@ function generateDraftFromDocuments({ documents, prompt }) {
     title,
     contentText,
     contentHtml,
+    structuredContent: buildStructuredContent(contentText),
   };
 }
 
@@ -906,6 +907,7 @@ app.post('/api/generations', (req, res) => {
     })),
     contentText: draft.contentText,
     contentHtml: draft.contentHtml || '',
+    structuredContent: draft.structuredContent || { blocks: [] },
     createdAt: now,
     updatedAt: now,
   };
@@ -954,6 +956,7 @@ app.patch('/api/generated-documents/:id', (req, res) => {
   let contentUpdated = false;
   if (typeof contentText === 'string') {
     docs[idx].contentText = contentText;
+    docs[idx].structuredContent = buildStructuredContent(contentText);
     contentUpdated = true;
   }
   if (typeof contentHtml === 'string') {
@@ -998,6 +1001,7 @@ app.post('/api/generated-documents/:id/regenerate', (req, res) => {
     })),
     contentText: draft.contentText,
     contentHtml: draft.contentHtml || '',
+    structuredContent: draft.structuredContent || { blocks: [] },
     regeneratedFromId: baseDoc.id,
     createdAt: now,
     updatedAt: now,
