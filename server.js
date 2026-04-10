@@ -194,6 +194,27 @@ function extractHwpViaStrings(fullPath) {
   return text;
 }
 
+function extractHwpViaHwp5html(fullPath) {
+  const localHwp5html = path.join(process.env.HOME || '/home/ubuntu', '.local', 'bin', 'hwp5html');
+  const bin = commandExists('hwp5html') ? 'hwp5html' : (fs.existsSync(localHwp5html) ? localHwp5html : null);
+  if (!bin) throw new Error('hwp5html not installed');
+
+  const tempDir = fs.mkdtempSync(path.join('/tmp', 'workdog-hwp5html-'));
+  execFileSync(bin, ['--output', tempDir, fullPath], { encoding: 'utf8', timeout: 30000 });
+  const xhtmlPath = path.join(tempDir, 'index.xhtml');
+  if (!fs.existsSync(xhtmlPath)) throw new Error('hwp5html did not produce index.xhtml');
+  const html = fs.readFileSync(xhtmlPath, 'utf8');
+  return {
+    html,
+    assetDir: path.join(tempDir, 'bindata'),
+    tempDir,
+  };
+}
+
+function extractHwpHtml(fullPath) {
+  return extractHwpViaHwp5html(fullPath);
+}
+
 function postProcessHwpText(text) {
   const clean = String(text || '')
     .replace(/\r\n/g, '\n')
