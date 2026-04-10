@@ -807,6 +807,19 @@ async function runDocumentPipelineTask({ taskId, docId, folderId, title, origina
 
       await runStep('summarize', { extractedLength: context.extractedText.length }, async () => {
         context.structuredContent = buildStructuredContent(context.extractedText);
+
+        if (ext === 'hwp') {
+          try {
+            const htmlResult = extractHwpHtml(context.fullPath);
+            const htmlStructured = buildStructuredContentFromHtml(htmlResult.html);
+            if (Array.isArray(htmlStructured?.blocks) && htmlStructured.blocks.length > 0) {
+              context.structuredContent = htmlStructured;
+            }
+          } catch (e) {
+            appendTaskLog(taskId, `[summarize] hwp html fallback skipped: ${e?.message ? String(e.message) : String(e)}`);
+          }
+        }
+
         const result = summarizeTextHeuristic(context.extractedText);
         context.summaryOneLine = result.summaryOneLine || '';
         context.keyPoints = Array.isArray(result.keyPoints) ? result.keyPoints : [];
