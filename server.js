@@ -172,9 +172,15 @@ function mapKordocBlocks(blocks) {
     }
 
     if (block.type === 'table') {
-      const rows = Array.isArray(block.rows)
-        ? block.rows.map((row) => Array.isArray(row) ? row.map((cell) => String(cell?.text ?? cell ?? '').trim()) : [String(row ?? '').trim()]).filter((row) => row.length > 0)
-        : [];
+      const sourceRows = Array.isArray(block.rows)
+        ? block.rows
+        : (Array.isArray(block.table?.cells) ? block.table.cells : []);
+      const rows = sourceRows
+        .map((row) => Array.isArray(row)
+          ? row.map((cell) => String(cell?.text ?? cell ?? '').trim())
+          : [String(row ?? '').trim()])
+        .map((row) => row.map((cell) => cell || ' '))
+        .filter((row) => row.length > 0);
       return { type: 'table', rows };
     }
 
