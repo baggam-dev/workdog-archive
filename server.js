@@ -757,9 +757,34 @@ function generateDraftFromDocuments({ documents, prompt }) {
     const paragraphLines = (doc.structuredBlocks || [])
       .filter((block) => block?.type === 'paragraph')
       .map((block) => block?.text);
-    const tableLines = (doc.structuredBlocks || [])
-      .filter((block) => block?.type === 'table' && Array.isArray(block?.rows))
-      .flatMap((block) => block.rows.slice(0, 4).map((row) => row.map((cell) => String(cell || '').trim()).filter(Boolean).join(' | ')));
+    const tables = (doc.structuredBlocks || [])
+      .filter((block) => block?.type === 'table' && Array.isArray(block?.rows));
+    const tableLines = tables
+      .flatMap((block) => block.rows.slice(0, 6).map((row) => row.map((cell) => String(cell || '').trim()).filter(Boolean).join(' | ')));
+
+    const scheduleRows = [];
+    for (const table of tables) {
+      const rows = Array.isArray(table.rows) ? table.rows.filter((row) => Array.isArray(row)) : [];
+      if (rows.length < 2) continue;
+      const header = rows[0].map((cell) => String(cell || '').trim());
+      const monthIdx = header.findIndex((v) => /월/.test(v));
+      const dateIdx = header.findIndex((v) => /활동일|일정|시기/.test(v));
+      const gradeIdx = header.findIndex((v) => /학년|대상/.test(v));
+      const classIdx = header.findIndex((v) => /반|학급|운영/.test(v));
+      const noteIdx = header.findIndex((v) => /비고|참고|메모/.test(v));
+      if (monthIdx < 0 && dateIdx < 0 && gradeIdx < 0) continue;
+
+      for (const row of rows.slice(1, 8)) {
+        const cols = row.map((cell) => String(cell || '').trim());
+        const month = monthIdx >= 0 ? cols[monthIdx] : '';
+        const when = dateIdx >= 0 ? cols[dateIdx] : '';
+        const grade = gradeIdx >= 0 ? cols[gradeIdx] : '';
+        const klass = classIdx >= 0 ? cols[classIdx] : '';
+        const note = noteIdx >= 0 ? cols[noteIdx] : '';
+        if (![month, when, grade, klass, note].some(Boolean)) continue;
+        scheduleRows.push({ month, when, grade, klass, note });
+      }
+    }
 
     const lines = uniqueLines([
       ...headingLines,
@@ -768,11 +793,12 @@ function generateDraftFromDocuments({ documents, prompt }) {
       doc.summaryOneLine,
       doc.summary,
       doc.title,
-    ], 10);
+    ], 12);
 
     return {
       title: doc.title,
       lines,
+      scheduleRows,
       type: classifyDocType(`${doc.title} ${doc.summaryOneLine} ${cleanPrompt}`),
     };
   });
@@ -788,17 +814,14 @@ function generateDraftFromDocuments({ documents, prompt }) {
   const planLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /일정|계획|월|학기|주간|단계/.test(line))), 6);
   const effectLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /기대|효과|개선|도움|지원/.test(line))), 4);
   const tableEvidence = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => line.includes(' | '))), 8);
-  const scheduleNarratives = uniqueLines(tableEvidence.map((line) => {
-    const cols = line.split('|').map((v) => v.trim()).filter(Boolean);
-    if (cols.length >= 4 && /월/.test(cols[0])) {
-      const month = cols[0];
-      const when = cols[1] || '운영 시기';
-      const target = cols[2] || '대상';
-      const note = cols[4] || cols[3] || '';
-      return `${month}에는 ${target}을 대상으로 ${when}에 운영하며${note ? `, ${note}` : ''} 필요한 세부 사항은 학년 협의를 통해 조정합니다.`;
-    }
-    return '';
-  }), 5);
+  const scheduleNarratives = uniqueLines(docCoreLines.flatMap((doc) => (doc.scheduleRows || []).map((row) => {
+    const month = row.month || '해당 시기';
+    const target = row.grade || '대상 학년';
+    const when = row.when || '운영 시기';
+    const klass = row.klass ? `${row.klass} 기준으로 ` : '';
+    const note = row.note ? ` ${row.note}` : '';
+    return `${month}에는 ${target}을 대상으로 ${klass}${when}에 운영합니다.${note}`.trim();
+  })), 6);
 
   const introByType = {
     plan: `${cleanPrompt}에 맞춰 바로 수정 가능한 계획서 초안 형태로 정리합니다.`,
