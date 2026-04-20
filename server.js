@@ -687,7 +687,12 @@ function buildGenerationSourceDocuments(documentIds) {
     const summary = String(doc?.summary || '').trim();
     const structuredBlocks = Array.isArray(doc?.structuredContent?.blocks) ? doc.structuredContent.blocks : [];
     const structuredSnippet = structuredBlocks
-      .map((block) => String(block?.text || '').trim())
+      .map((block) => {
+        if (block?.type === 'table' && Array.isArray(block?.rows)) {
+          return block.rows.flat().map((cell) => String(cell || '').trim()).filter(Boolean).join(' | ');
+        }
+        return String(block?.text || '').trim();
+      })
       .filter(Boolean)
       .slice(0, 5)
       .join('\n');
@@ -722,7 +727,6 @@ function buildGenerationPromptTitle(prompt) {
 function generateDraftFromDocuments({ documents, prompt }) {
   const cleanPrompt = String(prompt || '').replace(/\s+/g, ' ').trim();
   const title = buildGenerationPromptTitle(cleanPrompt);
-  const sourceTitles = documents.map((doc) => `- ${doc.title}`).join('\n');
 
   const uniqueLines = (lines, max = 6) => {
     const seen = new Set();
@@ -739,6 +743,13 @@ function generateDraftFromDocuments({ documents, prompt }) {
     return out;
   };
 
+  const classifyDocType = (text) => {
+    if (/가정통신문|안내문/.test(text)) return 'notice';
+    if (/계획|운영/.test(text)) return 'plan';
+    if (/보고|결과/.test(text)) return 'report';
+    return 'general';
+  };
+
   const docCoreLines = documents.map((doc) => {
     const headingLines = (doc.structuredBlocks || [])
       .filter((block) => block?.type === 'heading')
@@ -746,102 +757,114 @@ function generateDraftFromDocuments({ documents, prompt }) {
     const paragraphLines = (doc.structuredBlocks || [])
       .filter((block) => block?.type === 'paragraph')
       .map((block) => block?.text);
-    const markerLines = (doc.structuredBlocks || [])
-      .filter((block) => block?.type === 'table-placeholder' || block?.type === 'image-placeholder')
-      .map((block) => block?.type === 'table-placeholder' ? '표 자료가 포함됩니다.' : '그림 자료가 포함됩니다.');
+    const tableLines = (doc.structuredBlocks || [])
+      .filter((block) => block?.type === 'table' && Array.isArray(block?.rows))
+      .flatMap((block) => block.rows.slice(0, 4).map((row) => row.map((cell) => String(cell || '').trim()).filter(Boolean).join(' | ')));
 
     const lines = uniqueLines([
       ...headingLines,
       ...paragraphLines,
-      ...markerLines,
-      doc.extractedText,
+      ...tableLines,
       doc.summaryOneLine,
       doc.summary,
       doc.title,
-    ], 6);
+    ], 10);
 
     return {
       title: doc.title,
       lines,
+      type: classifyDocType(`${doc.title} ${doc.summaryOneLine} ${cleanPrompt}`),
     };
   });
 
-  const targetLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /대상|학년|학생|학부모|교직원|교사/.test(line))), 3);
-  const operationLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /운영|활동|방법|절차|안내|추진/.test(line))), 4);
-  const planLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /일정|계획|월|학기|주간|단계/.test(line))), 4);
-  const effectLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /기대|효과|개선|도움|지원/.test(line))), 3);
+  const dominantType = docCoreLines.reduce((acc, doc) => {
+    acc[doc.type] = (acc[doc.type] || 0) + 1;
+    return acc;
+  }, {});
+  const docType = Object.entries(dominantType).sort((a, b) => b[1] - a[1])[0]?.[0] || 'general';
+
+  const targetLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /대상|학년|학생|학부모|교직원|교사/.test(line))), 4);
+  const operationLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /운영|활동|방법|절차|안내|추진/.test(line))), 5);
+  const planLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /일정|계획|월|학기|주간|단계/.test(line))), 6);
+  const effectLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /기대|효과|개선|도움|지원/.test(line))), 4);
+  const tableEvidence = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => line.includes(' | '))), 6);
+
+  const introByType = {
+    plan: `${cleanPrompt}에 맞춰 바로 수정 가능한 계획서 초안 형태로 정리합니다.`,
+    notice: `${cleanPrompt}에 맞춰 전달 대상이 바로 이해할 수 있는 안내문 초안 형태로 정리합니다.`,
+    report: `${cleanPrompt}에 맞춰 경과와 핵심 내용을 빠르게 파악할 수 있는 보고 초안 형태로 정리합니다.`,
+    general: `${cleanPrompt}에 맞춰 참고 문서를 바탕으로 바로 수정 가능한 초안 형태로 정리합니다.`,
+  };
+
+  const sectionsByType = {
+    plan: [
+      ['1. 추진 배경 및 목적', introByType[docType]],
+      ['2. 운영 대상', targetLines.join(' ') || '적용 대상과 범위를 구체적으로 적습니다.'],
+      ['3. 운영 내용', operationLines.join(' ') || '핵심 운영 내용과 절차를 실무 중심으로 정리합니다.'],
+      ['4. 세부 일정', planLines.join(' ') || '월별 또는 단계별 일정과 준비 흐름을 정리합니다.'],
+      ['5. 참고할 세부 항목', tableEvidence.join(' / ') || '표에 있는 세부 항목과 준비 요소를 반영해 보완합니다.'],
+      ['6. 기대 효과', effectLines.join(' ') || '기대 효과와 활용 가치를 간단명료하게 정리합니다.'],
+    ],
+    notice: [
+      ['1. 안내 개요', introByType[docType]],
+      ['2. 안내 대상', targetLines.join(' ') || '안내 대상과 적용 범위를 분명하게 적습니다.'],
+      ['3. 주요 안내 사항', operationLines.join(' ') || '꼭 전달해야 할 핵심 내용을 먼저 정리합니다.'],
+      ['4. 일정 및 참여 방법', planLines.join(' ') || '일정, 참여 방법, 준비 사항을 정리합니다.'],
+      ['5. 참고할 세부 항목', tableEvidence.join(' / ') || '세부 항목과 주의 사항을 보완합니다.'],
+    ],
+    report: [
+      ['1. 보고 개요', introByType[docType]],
+      ['2. 대상 및 범위', targetLines.join(' ') || '대상과 범위를 분명하게 적습니다.'],
+      ['3. 주요 추진 내용', operationLines.join(' ') || '주요 추진 내용을 간결하게 요약합니다.'],
+      ['4. 일정 및 경과', planLines.join(' ') || '시기별 경과와 주요 일정을 정리합니다.'],
+      ['5. 시사점', effectLines.join(' ') || '성과, 효과, 향후 보완점을 정리합니다.'],
+    ],
+    general: [
+      ['1. 목적', introByType[docType]],
+      ['2. 대상', targetLines.join(' ') || '적용 대상을 구체적으로 적습니다.'],
+      ['3. 핵심 내용', operationLines.join(' ') || '핵심 내용을 실무 중심으로 정리합니다.'],
+      ['4. 일정 또는 절차', planLines.join(' ') || '일정이나 절차를 순서대로 정리합니다.'],
+      ['5. 참고할 세부 항목', tableEvidence.join(' / ') || '표나 세부 요소를 반영해 보완합니다.'],
+      ['6. 기대 효과', effectLines.join(' ') || '기대 효과를 정리합니다.'],
+    ],
+  };
 
   const sourceSummaryLines = docCoreLines.map((doc, index) => {
-    const joined = uniqueLines(doc.lines, 3).join(' / ');
+    const joined = uniqueLines(doc.lines, 4).join(' / ');
     return `${index + 1}. ${doc.title}: ${joined || '참고 내용이 있습니다.'}`;
   });
 
-  const referenceSummary = docCoreLines.map((doc, index) => {
-    return `[참고문서 ${index + 1}] ${doc.title}\n${uniqueLines(doc.lines, 4).join('\n') || '참고 내용이 있습니다.'}`;
-  }).join('\n\n');
-
-  const purposeText = `선택한 참고 문서를 바탕으로 ${cleanPrompt}에 맞는 초안 문서를 작성합니다. 기존 문서의 핵심 표현과 구조를 참고하되 현재 요청에 맞게 바로 수정 가능한 형태로 정리합니다.`;
-  const targetText = targetLines.length
-    ? `${targetLines.join(' ')} 이를 바탕으로 실제 적용 대상이 분명하게 드러나도록 작성합니다.`
-    : '학생, 학부모, 교직원 등 실제 적용 대상을 분명하게 적고 필요한 경우 학년 또는 운영 대상을 구체적으로 구분해 작성합니다.';
-  const operationText = operationLines.length
-    ? `${operationLines.join(' ')} 실제 운영 시 필요한 절차와 안내 사항이 빠지지 않도록 정리합니다.`
-    : '핵심 운영 내용, 추진 방법, 안내 사항을 중심으로 실무에서 바로 사용할 수 있게 정리합니다.';
-  const planText = planLines.length
-    ? `${planLines.join(' ')} 일정, 단계, 준비 흐름이 보이도록 세부 계획을 작성합니다.`
-    : '시기별 일정, 준비 단계, 실행 순서를 구분하여 세부 계획을 작성합니다.';
-  const effectText = effectLines.length
-    ? `${effectLines.join(' ')} 실행 이후 기대되는 변화와 효과가 드러나도록 정리합니다.`
-    : '운영 이후 기대 효과와 실무적 활용 가치를 간단명료하게 정리합니다.';
+  const sectionLines = (sectionsByType[docType] || sectionsByType.general)
+    .flatMap(([heading, body]) => [heading, body, '']);
 
   let contentText = [
-    '[요청]',
-    cleanPrompt,
+    cleanPrompt || '생성 문서 초안',
     '',
-    '[참고 문서]',
-    sourceTitles,
-    '',
-    '[초안]',
-    '1. 목적',
-    purposeText,
-    '',
-    '2. 대상',
-    targetText,
-    '',
-    '3. 운영 내용',
-    operationText,
-    '',
-    '4. 세부 계획',
-    planText,
-    '',
-    '5. 기대 효과',
-    effectText,
-    '',
-    '[참고 요약]',
+    ...sectionLines,
+    '참고 문서',
     sourceSummaryLines.join('\n'),
-    '',
-    referenceSummary,
   ].join('\n');
 
   if (contentText.length < 500) {
-    contentText += '\n\n추가 안내: 이 초안은 참고 문서의 공통 요소를 바탕으로 정리한 1차 결과입니다. 실제 사용 전에는 연도, 대상, 일정, 담당자, 세부 운영 방식, 준비 사항을 현재 상황에 맞게 다시 확인하고 보정하는 것을 권장합니다. 문서의 목적과 대상이 한눈에 드러나도록 문장을 다듬고, 중복 표현은 줄여 최종본의 가독성을 높이는 방식으로 활용합니다.';
+    contentText += '\n\n참고 문서를 바탕으로 정리한 1차 초안입니다. 실제 적용 전에는 연도, 대상, 일정, 담당자, 세부 운영 방식과 준비 사항을 현재 상황에 맞게 반드시 보정해 주세요.';
   }
 
-  const htmlSections = contentText.split('\n\n').map((chunk) => {
+  const htmlSections = contentText.split('\n\n').map((chunk, index) => {
     const trimmed = chunk.trim();
-    if (/^\[[^\]]+\]$/.test(trimmed)) return `<h2>${trimmed.replace(/^\[|\]$/g, '')}</h2>`;
+    if (!trimmed) return '';
+    if (index === 0) return `<h1>${trimmed}</h1>`;
+    if (/^참고 문서$/.test(trimmed)) return '<h2>참고 문서</h2>';
     if (/^\d+\./.test(trimmed)) {
       const [first, ...rest] = trimmed.split('\n');
       return `<h3>${first}</h3>${rest.length ? `<p>${rest.join('<br />')}</p>` : ''}`;
     }
     return `<p>${trimmed.replace(/\n/g, '<br />')}</p>`;
-  }).join('\n');
-  const contentHtml = `<h1>${title}</h1>\n${htmlSections}`;
+  }).filter(Boolean).join('\n');
 
   return {
     title,
     contentText,
-    contentHtml,
+    contentHtml: htmlSections,
     structuredContent: buildStructuredContent(contentText),
   };
 }
