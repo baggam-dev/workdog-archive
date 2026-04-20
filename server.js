@@ -809,8 +809,16 @@ function generateDraftFromDocuments({ documents, prompt }) {
   }, {});
   const docType = Object.entries(dominantType).sort((a, b) => b[1] - a[1])[0]?.[0] || 'general';
 
-  const targetLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /대상|학년|학생|학부모|교직원|교사|학급|참여/.test(line))), 5);
-  const operationLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /운영|활동|방법|절차|안내|추진/.test(line))), 5);
+  const targetPriorityLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /운영 대상|적용 대상|참여 대상|전교생|희망 학급/.test(line))), 4);
+  const targetLines = uniqueLines([
+    ...targetPriorityLines,
+    ...docCoreLines.flatMap((doc) => doc.lines.filter((line) => /대상|학년|학생|학부모|교직원|교사|학급|참여/.test(line))),
+  ], 5);
+  const operationPriorityLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /추진 방향|주요 활동|세부추진계획|운영 기간/.test(line))), 4);
+  const operationLines = uniqueLines([
+    ...operationPriorityLines,
+    ...docCoreLines.flatMap((doc) => doc.lines.filter((line) => /운영|활동|방법|절차|안내|추진/.test(line))),
+  ], 5);
   const planLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /일정|계획|월|학기|주간|단계/.test(line))), 6);
   const effectLines = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => /기대|효과|개선|도움|지원/.test(line))), 4);
   const tableEvidence = uniqueLines(docCoreLines.flatMap((doc) => doc.lines.filter((line) => line.includes(' | '))), 8);
@@ -830,33 +838,42 @@ function generateDraftFromDocuments({ documents, prompt }) {
     general: `${cleanPrompt}에 맞춰 참고 문서를 바탕으로 바로 수정 가능한 초안 형태로 정리합니다.`,
   };
 
+  const cleanedTargetText = (targetLines.join(' ') || '적용 대상과 범위를 구체적으로 적습니다.')
+    .replace(/(가|나|다)\.\s*/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const cleanedOperationText = (operationLines.join(' ') || '핵심 운영 내용과 절차를 실무 중심으로 정리합니다.')
+    .replace(/(가|나|다)\.\s*/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
   const sectionsByType = {
     plan: [
       ['1. 추진 배경 및 목적', introByType[docType]],
-      ['2. 운영 대상', targetLines.join(' ') || '적용 대상과 범위를 구체적으로 적습니다.'],
-      ['3. 운영 내용', operationLines.join(' ') || '핵심 운영 내용과 절차를 실무 중심으로 정리합니다.'],
+      ['2. 운영 대상', cleanedTargetText || '적용 대상과 범위를 구체적으로 적습니다.'],
+      ['3. 운영 내용', cleanedOperationText || '핵심 운영 내용과 절차를 실무 중심으로 정리합니다.'],
       ['4. 세부 일정', scheduleNarratives.join(' ') || planLines.join(' ') || '월별 또는 단계별 일정과 준비 흐름을 정리합니다.'],
       ['5. 참고할 세부 항목', tableEvidence.join(' / ') || '표에 있는 세부 항목과 준비 요소를 반영해 보완합니다.'],
       ['6. 기대 효과', effectLines.join(' ') || '기대 효과와 활용 가치를 간단명료하게 정리합니다.'],
     ],
     notice: [
       ['1. 안내 개요', introByType[docType]],
-      ['2. 안내 대상', targetLines.join(' ') || '안내 대상과 적용 범위를 분명하게 적습니다.'],
-      ['3. 주요 안내 사항', operationLines.join(' ') || '꼭 전달해야 할 핵심 내용을 먼저 정리합니다.'],
+      ['2. 안내 대상', cleanedTargetText || '안내 대상과 적용 범위를 분명하게 적습니다.'],
+      ['3. 주요 안내 사항', cleanedOperationText || '꼭 전달해야 할 핵심 내용을 먼저 정리합니다.'],
       ['4. 일정 및 참여 방법', scheduleNarratives.join(' ') || planLines.join(' ') || '일정, 참여 방법, 준비 사항을 정리합니다.'],
       ['5. 참고할 세부 항목', tableEvidence.join(' / ') || '세부 항목과 주의 사항을 보완합니다.'],
     ],
     report: [
       ['1. 보고 개요', introByType[docType]],
-      ['2. 대상 및 범위', targetLines.join(' ') || '대상과 범위를 분명하게 적습니다.'],
-      ['3. 주요 추진 내용', operationLines.join(' ') || '주요 추진 내용을 간결하게 요약합니다.'],
+      ['2. 대상 및 범위', cleanedTargetText || '대상과 범위를 분명하게 적습니다.'],
+      ['3. 주요 추진 내용', cleanedOperationText || '주요 추진 내용을 간결하게 요약합니다.'],
       ['4. 일정 및 경과', scheduleNarratives.join(' ') || planLines.join(' ') || '시기별 경과와 주요 일정을 정리합니다.'],
       ['5. 시사점', effectLines.join(' ') || '성과, 효과, 향후 보완점을 정리합니다.'],
     ],
     general: [
       ['1. 목적', introByType[docType]],
-      ['2. 대상', targetLines.join(' ') || '적용 대상을 구체적으로 적습니다.'],
-      ['3. 핵심 내용', operationLines.join(' ') || '핵심 내용을 실무 중심으로 정리합니다.'],
+      ['2. 대상', cleanedTargetText || '적용 대상을 구체적으로 적습니다.'],
+      ['3. 핵심 내용', cleanedOperationText || '핵심 내용을 실무 중심으로 정리합니다.'],
       ['4. 일정 또는 절차', scheduleNarratives.join(' ') || planLines.join(' ') || '일정이나 절차를 순서대로 정리합니다.'],
       ['5. 참고할 세부 항목', tableEvidence.join(' / ') || '표나 세부 요소를 반영해 보완합니다.'],
       ['6. 기대 효과', effectLines.join(' ') || '기대 효과를 정리합니다.'],
