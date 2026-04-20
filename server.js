@@ -10,6 +10,10 @@ const { parse: parseHwp } = require('hwp.js/build/cjs.js');
 
 const app = express();
 const PORT = 3030;
+const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
+const OPENAI_MODEL = String(process.env.OPENAI_MODEL || 'gpt-4.1-mini').trim();
+const OPENAI_BASE_URL = String(process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').trim().replace(/\/$/, '');
+const GENERATION_MODE = String(process.env.GENERATION_MODE || 'auto').trim().toLowerCase();
 
 const LEGACY_PUBLIC_DIR = path.join(__dirname, 'public');
 const REACT_DIST_DIR = path.join(__dirname, '..', 'workdog-archive-web', 'dist');
@@ -724,6 +728,68 @@ function buildGenerationPromptTitle(prompt) {
   return `${clean.slice(0, 80)} 초안`;
 }
 
+function buildLlmContext(documents) {
+  return documents.map((doc, index) => {
+    const headings = (doc.structuredBlocks || []).filter((block) => block?.type === 'heading').map((block) => block.text).filter(Boolean).slice(0, 5);
+    const paragraphs = (doc.structuredBlocks || []).filter((block) => block?.type === 'paragraph').map((block) => block.text).filter(Boolean).slice(0, 8);
+    const tables = (doc.structuredBlocks || []).filter((block) => block?.type === 'table' && Array.isArray(block?.rows)).slice(0, 2).map((table) => table.rows.slice(0, 6).map((row) => row.map((cell) => String(cell || '').trim()).filter(Boolean).join(' | ')).filter(Boolean).join('\n')).filter(Boolean);
+    return [
+      `[문서 ${index + 1}] ${doc.title}`,
+      doc.summaryOneLine ? `한줄요약: ${doc.summaryOneLine}` : '',
+      headings.length ? `제목들:\n${headings.join('\n')}` : '',
+      paragraphs.length ? `핵심 문단:\n${paragraphs.join('\n')}` : '',
+      tables.length ? `표 정보:\n${tables.join('\n\n')}` : '',
+    ].filter(Boolean).join('\n');
+  }).join('\n\n');
+}
+
+async function tryGenerateDraftViaLlm({ documents, prompt }) {
+  if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not configured');
+
+  const title = buildGenerationPromptTitle(prompt);
+  const contextText = buildLlmContext(documents);
+  const body = {
+    model: OPENAI_MODEL,
+    temperature: 0.4,
+    messages: [
+      {
+        role: 'system',
+        content: '당신은 한국 학교/기관 실무 문서를 작성하는 보조자입니다. 참고 문서를 바탕으로 사용자가 바로 수정해 사용할 수 있는 자연스러운 한국어 초안을 작성하세요. 내부 참고 요약을 그대로 노출하지 말고, 완성된 문서 초안만 출력하세요. 추측하지 말고 근거가 약한 내용은 일반 표현으로 정리하세요.'
+      },
+      {
+        role: 'user',
+        content: `다음 참고 문서를 바탕으로 요청에 맞는 문서 초안을 작성해 주세요.\n\n[요청]\n${prompt}\n\n[참고 문서 요약]\n${contextText}\n\n출력 규칙:\n- 제목 없이 본문만 작성\n- 문서 유형에 맞는 자연스러운 섹션 구조 사용\n- 참고 문서의 일정표/대상/운영 내용을 최대한 반영\n- 내부 메모처럼 보이는 표현, 대괄호 섹션명, 참고요약 나열 금지`
+      }
+    ]
+  };
+
+  const response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`llm request failed: ${response.status} ${text}`);
+  }
+
+  const data = await response.json();
+  const contentText = String(data?.choices?.[0]?.message?.content || '').trim();
+  if (!contentText) throw new Error('llm returned empty content');
+
+  return {
+    title,
+    contentText,
+    contentHtml: '',
+    structuredContent: buildStructuredContent(contentText),
+    generationMethod: 'llm',
+  };
+}
+
 function generateDraftFromDocuments({ documents, prompt }) {
   const cleanPrompt = String(prompt || '').replace(/\s+/g, ' ').trim();
   const title = buildGenerationPromptTitle(cleanPrompt);
@@ -1170,7 +1236,7 @@ app.get('/api/tasks/:taskId', (req, res) => {
   return res.json(task);
 });
 
-app.post('/api/generations', (req, res) => {
+app.post('/api/generations', async (req, res) => {
   const documentIds = Array.isArray(req.body?.documentIds) ? req.body.documentIds.map((v) => String(v)) : [];
   const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
 
@@ -1184,7 +1250,18 @@ app.post('/api/generations', (req, res) => {
     return res.status(400).json({ error: e?.message || '유효한 문서를 찾을 수 없습니다.' });
   }
 
-  const draft = generateDraftFromDocuments({ documents: sourceDocs, prompt });
+  let draft;
+  try {
+    if (GENERATION_MODE === 'llm' || GENERATION_MODE === 'auto') {
+      draft = await tryGenerateDraftViaLlm({ documents: sourceDocs, prompt });
+    } else {
+      draft = generateDraftFromDocuments({ documents: sourceDocs, prompt });
+    }
+  } catch (e) {
+    draft = generateDraftFromDocuments({ documents: sourceDocs, prompt });
+    draft.generationMethod = `rule-fallback:${e?.message || 'unknown'}`;
+  }
+
   const now = new Date().toISOString();
   const generatedDoc = {
     id: crypto.randomUUID(),
@@ -1200,6 +1277,7 @@ app.post('/api/generations', (req, res) => {
     contentText: draft.contentText,
     contentHtml: draft.contentHtml || '',
     structuredContent: draft.structuredContent || { blocks: [] },
+    generationMethod: draft.generationMethod || 'rule-based',
     createdAt: now,
     updatedAt: now,
   };
